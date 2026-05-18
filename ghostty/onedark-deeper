@@ -1,0 +1,29 @@
+# OneDark Deeper — Ghostty theme
+# Ported from Zed OneDark Deeper by will
+
+background = 232528
+foreground = a8a9ad
+cursor-color = 91B4F9
+cursor-text = 232528
+selection-background = 363840
+selection-foreground = c5c6c9
+
+# Normal colors
+palette = 0=#202123
+palette = 1=#F4787B
+palette = 2=#92CEB0
+palette = 3=#dcc592
+palette = 4=#91B4F9
+palette = 5=#c48fdf
+palette = 6=#7bc3cc
+palette = 7=#a8a9ad
+
+# Bright colors
+palette = 8=#55575e
+palette = 9=#F4787B
+palette = 10=#92CEB0
+palette = 11=#dcc592
+palette = 12=#91B4F9
+palette = 13=#c48fdf
+palette = 14=#7bc3cc
+palette = 15=#c5c6c9
