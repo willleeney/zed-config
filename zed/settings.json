@@ -1,0 +1,114 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "cli_default_open_behavior": "existing_window",
+  "icon_theme": "Zed (Default)",
+  "project_panel": {
+    "dock": "left",
+  },
+  "outline_panel": {
+    "dock": "left",
+  },
+  "collaboration_panel": {
+    "dock": "left",
+  },
+  "git_panel": {
+    "dock": "left",
+  },
+  "edit_predictions": {
+    "provider": "copilot",
+  },
+  "confirm_quit": true,
+  "agent": {
+    "dock": "right",
+  },
+  "terminal": {
+    "dock": "right",
+  },
+  "debugger": {
+    "dock": "right",
+  },
+  "base_keymap": "VSCode",
+  "ui_font_size": 16,
+  "buffer_font_size": 16,
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "OneDark Deeper",
+  },
+  "autosave": "on_focus_change",
+  "inlay_hints": {
+    "show_value_hints": false,
+  },
+  "format_on_save": "on",
+  "lsp": {
+    "biome": {
+      "binary": {
+        "path": "node_modules/.bin/biome",
+      },
+      "initialization_options": {
+        "checkOnSave": true,
+      },
+    },
+  },
+  "languages": {
+    "Python": {
+      "language_servers": ["ruff", "pyright"],
+      "format_on_save": "off",
+      "formatter": [
+        {
+          "language_server": { "name": "ruff" },
+        },
+      ],
+    },
+    "YAML": {
+      "language_servers": [],
+    },
+    "JavaScript": {
+      "language_servers": ["biome", "..."],
+      "formatter": {
+        "language_server": {
+          "name": "biome",
+        },
+      },
+    },
+    "TypeScript": {
+      "language_servers": ["biome", "..."],
+      "formatter": {
+        "language_server": {
+          "name": "biome",
+        },
+      },
+    },
+    "TSX": {
+      "language_servers": ["biome", "..."],
+      "formatter": {
+        "language_server": {
+          "name": "biome",
+        },
+      },
+    },
+    "JSON": {
+      "language_servers": ["biome", "..."],
+      "formatter": {
+        "language_server": {
+          "name": "biome",
+        },
+      },
+    },
+    "Markdown": {
+      "format_on_save": "off",
+      "show_edit_predictions": false,
+    },
+    "MDX": {
+      "format_on_save": "off",
+      "show_edit_predictions": false,
+    },
+  },
+}
