@@ -31,6 +31,17 @@ cp claude-code-theme.json ~/.claude/themes/onedark-deeper.json
 
 Then activate with `/theme` and select "OneDark Deeper".
 
+### OpenCode
+
+Copy the theme and config files:
+
+```sh
+cp opencode/onedark-deeper.json ~/.config/opencode/themes/onedark-deeper.json
+cp opencode/tui.json ~/.config/opencode/tui.json
+```
+
+The theme will be active on your next OpenCode session.
+
 ### iTerm2
 
 Copy the dynamic profile — iTerm2 auto-loads it, no manual import:
@@ -59,4 +70,6 @@ Zed's *current* default instead, change `Normal Font` to `Lilex-Regular 14`.
 |------|-------------|
 | `themes/onedark-deeper.json` | `~/.config/zed/themes/onedark-deeper.json` |
 | `claude-code-theme.json` | `~/.claude/themes/onedark-deeper.json` |
+| `opencode/onedark-deeper.json` | `~/.config/opencode/themes/onedark-deeper.json` |
+| `opencode/tui.json` | `~/.config/opencode/tui.json` |
 | `iterm2/onedark-deeper.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/onedark-deeper.json` |
