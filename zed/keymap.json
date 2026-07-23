@@ -1,0 +1,33 @@
+[
+  {
+    "context": "Terminal",
+    "bindings": {
+      "shift-enter": ["terminal::SendText", "\n"],
+    },
+  },
+  {
+    "bindings": {
+      "cmd->": "terminal_panel::ToggleFocus",
+      "shift-cmd-j": "workspace::ToggleLeftDock",
+    },
+  },
+  {
+    // Agent workflow — conflict-proof ctrl-cmd-* set (VSCode base keymap owns cmd-k / cmd-shift-l)
+    "bindings": {
+      "ctrl-cmd-t": "agent::ToggleFocus", //  focus / open the agent panel
+      "ctrl-cmd-n": "agent::NewThread", //     new thread (meta conversation)
+      "ctrl-cmd-d": "git::Diff", //            open the project diff (uncommitted changes vs HEAD)
+      "cmd-b": "git::BranchDiff", //       diff the active repo's branch vs its default branch
+      "cmd-shift-b": "git::SelectRepo", // pick which repo is active (fuzzy picker), then cmd-b
+      "cmd-t": "workspace::NewTerminal", // new terminal in the panel (replaces Go to Symbol)
+    },
+  },
+  {
+    "context": "Editor",
+    "bindings": {
+      "ctrl-cmd-a": "agent::AddSelectionToThread", // send highlighted code to the agent thread
+      "ctrl-cmd-i": "assistant::InlineAssist", //     edit the selection in place (inline assist)
+      "ctrl-cmd-h": "editor::ToggleSelectedDiffHunks", // show/hide diff for the selection
+    },
+  },
+]

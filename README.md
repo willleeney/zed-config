@@ -69,6 +69,8 @@ Zed's *current* default instead, change `Normal Font` to `Lilex-Regular 14`.
 | File | Install path |
 |------|-------------|
 | `themes/onedark-deeper.json` | `~/.config/zed/themes/onedark-deeper.json` |
+| `themes/dawn.json` | `~/.config/zed/themes/dawn.json` |
+| `zed/keymap.json` | `~/.config/zed/keymap.json` |
 | `claude-code-theme.json` | `~/.claude/themes/onedark-deeper.json` |
 | `opencode/onedark-deeper.json` | `~/.config/opencode/themes/onedark-deeper.json` |
 | `opencode/tui.json` | `~/.config/opencode/tui.json` |
