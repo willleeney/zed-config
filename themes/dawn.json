@@ -48,12 +48,12 @@
         "editor.document_highlight.read_background": "#3a72e033",
         "editor.document_highlight.write_background": "#3a72e04d",
 
-        "border": "#cbcbd1",
-        "border.variant": "#cbcbd1",
-        "border.focused": "#bdbdc4",
+        "border": "#a6a7ad",
+        "border.variant": "#a6a7ad",
+        "border.focused": "#a6a7ad",
         "border.selected": "#3a72e0",
         "border.transparent": "#00000000",
-        "border.disabled": "#e3e3e6",
+        "border.disabled": "#a6a7ad",
 
         "tab_bar.background": "#ececee",
         "tab.inactive_background": "#ececee",
@@ -64,9 +64,9 @@
         "title_bar.inactive_background": "#ececee",
         "status_bar.background": "#ececee",
         "panel.background": "#f0f0f2",
-        "panel.focused_border": "#bdbdc4",
+        "panel.focused_border": "#a6a7ad",
 
-        "pane.focused_border": "#bdbdc4",
+        "pane.focused_border": "#a6a7ad",
 
         "scrollbar.thumb.background": "#bcbcc466",
         "scrollbar.thumb.hover_background": "#a6a7ad88",
