@@ -7,8 +7,22 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
+  "context_servers": {
+    
+  },
+  "agent_servers": {
+    "claude-acp": {
+      "type": "registry"
+    }
+  },
+  "diff_view_style": "unified",
+  "disable_ai": false,
   "cli_default_open_behavior": "existing_window",
-  "icon_theme": "Zed (Default)",
+  "icon_theme": {
+    "mode": "light",
+    "light": "Zed (Default)",
+    "dark": "Zed (Default)"
+  },
   "project_panel": {
     "dock": "left",
   },
@@ -22,11 +36,37 @@
     "dock": "left",
   },
   "edit_predictions": {
-    "provider": "copilot",
+    "provider": "zed",
   },
   "confirm_quit": true,
   "agent": {
+    "use_modifier_to_send": false,
+    "enable_feedback": false,
+    "sidebar_side": "right",
     "dock": "right",
+    "button": false,
+    "default_profile": "write",
+    "profiles": {
+      "code_review": {
+        "name": "Code Review",
+        "enable_all_context_servers": false,
+        "tools": {
+          "read_file": true,
+          "grep": true,
+          "find_path": true,
+          "list_directory": true,
+          "diagnostics": true,
+          "fetch": true,
+          "thinking": true,
+          "edit_file": false,
+          "create_directory": false,
+          "delete_path": false,
+          "move_path": false,
+          "copy_path": false,
+          "terminal": false,
+        },
+      },
+    },
   },
   "terminal": {
     "dock": "right",
@@ -38,8 +78,8 @@
   "ui_font_size": 16,
   "buffer_font_size": 16,
   "theme": {
-    "mode": "dark",
-    "light": "One Light",
+    "mode": "light",
+    "light": "Dawn",
     "dark": "OneDark Deeper",
   },
   "autosave": "on_focus_change",
@@ -105,10 +145,24 @@
     "Markdown": {
       "format_on_save": "off",
       "show_edit_predictions": false,
+      "soft_wrap": "editor_width",
+      "preferred_line_length": 92,
+      "buffer_font_family": "Georgia",
+      "buffer_font_size": 17,
+      "buffer_line_height": "comfortable",
+      "show_wrap_guides": false,
+      "indent_guides": { "enabled": false },
     },
     "MDX": {
       "format_on_save": "off",
       "show_edit_predictions": false,
+      "soft_wrap": "editor_width",
+      "preferred_line_length": 92,
+      "buffer_font_family": "Georgia",
+      "buffer_font_size": 17,
+      "buffer_line_height": "comfortable",
+      "show_wrap_guides": false,
+      "indent_guides": { "enabled": false },
     },
   },
 }
