@@ -16,10 +16,15 @@
     "bindings": {
       "ctrl-cmd-t": "agent::ToggleFocus", //  focus / open the agent panel
       "ctrl-cmd-n": "agent::NewThread", //     new thread (meta conversation)
+      "ctrl-cmd-c": [
+        "agent::NewExternalAgentThread",
+        { "agent": "claude-acp" },
+      ], // new Claude Code thread via ACP
       "ctrl-cmd-d": "git::Diff", //            open the project diff (uncommitted changes vs HEAD)
       "cmd-b": "git::BranchDiff", //       diff the active repo's branch vs its default branch
       "cmd-shift-b": "git::SelectRepo", // pick which repo is active (fuzzy picker), then cmd-b
       "cmd-t": "workspace::NewTerminal", // new terminal in the panel (replaces Go to Symbol)
+      "cmd-j": "agent::ToggleFocus",
     },
   },
   {
