@@ -1,5 +1,5 @@
 {
-  "name": "OneDark Deeper",
+  "name": "Dusk",
   "base": "dark",
   "overrides": {
     "claude": "#9a8ddb",
@@ -29,11 +29,11 @@
     "rate_limit_empty": "#363840",
     "briefLabelYou": "#91B4F9",
     "briefLabelClaude": "#9a8ddb",
-    "userMessageBackground": "#202123",
-    "userMessageBackgroundHover": "#2c2e32",
-    "messageActionsBackground": "#1e1f22",
-    "bashMessageBackgroundColor": "#1e1f22",
-    "memoryBackgroundColor": "#202123",
+    "userMessageBackground": "#262b34",
+    "userMessageBackgroundHover": "#2e3440",
+    "messageActionsBackground": "#1f232b",
+    "bashMessageBackgroundColor": "#1f232b",
+    "memoryBackgroundColor": "#262b34",
     "selectionBg": "#363840",
     "rainbow_red": "#F4787B",
     "rainbow_orange": "#CEA36C",
