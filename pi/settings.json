@@ -1,0 +1,23 @@
+{
+  "theme": "one-dark-deeper",
+  "ccHeader": {
+    "color": "b",
+    "ver": 1,
+    "grad": true,
+    "lines": true,
+    "pkg": false,
+    "speed": 50,
+    "slogan": "Code something that makes you proud",
+    "sloganOn": true,
+    "sloganColor": true
+  },
+  "packages": [
+    "npm:pi-zentui",
+    "npm:pi-cc-header",
+    "npm:pi-mcp-adapter"
+  ],
+  "quietStartup": true,
+  "clearOnStart": true,
+  "defaultProvider": "qwen",
+  "defaultModel": "qwen3.8-27b"
+}
