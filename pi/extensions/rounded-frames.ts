@@ -28,10 +28,53 @@ import {
 	createFindTool,
 	createGrepTool,
 	createLsTool,
+	generateDiffString,
 } from "@earendil-works/pi-coding-agent";
+import { readFile, stat } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { Container, Text, visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 
 const CWD = process.cwd();
+
+/** Minimal replacement for pi's internal resolveToCwd (not publicly exported). */
+function resolvePath(p: string, cwd: string): string {
+	return isAbsolute(p) ? p : resolve(cwd, p);
+}
+
+/**
+ * The stock write tool reports `details: undefined`, so no diff is available.
+ * Read the file (if it exists) BEFORE delegating to the original execute, then
+ * compute the same generateDiffString(editContent, writeContent) the edit tool
+ * uses, and attach it to the result as details.diff. New files diff against ""
+ * (everything is an addition), mirroring an "Applied" overwrite view.
+ */
+async function executeWriteWithDiff(
+	path: string,
+	content: string,
+	execute: any,
+	toolCallId: any,
+	signal: any,
+	onUpdate?: any,
+) {
+	const absolutePath = resolvePath(path, CWD);
+	let oldContent = "";
+	try {
+		const st = await stat(absolutePath);
+		if (st.isFile()) oldContent = await readFile(absolutePath, "utf8");
+	} catch {
+		oldContent = ""; // file doesn't exist yet — new file
+	}
+	const result = await execute(toolCallId, { path, content }, signal, onUpdate);
+	if (result && !result.isError && typeof content === "string") {
+		try {
+			const { diff } = generateDiffString(oldContent, content);
+			result.details = { ...(result.details as object | undefined), diff };
+		} catch {
+			// diff generation failed — leave details alone, box shows "Written"
+		}
+	}
+	return result;
+}
 
 function safeStringify(v: any): string {
 	try {
@@ -170,8 +213,19 @@ export default function (pi: ExtensionAPI) {
 			parameters: original.parameters,
 			renderShell: "self",
 
-			// Delegate execution to the untouched original tool.
+			// Delegate execution to the untouched original tool. write gets
+			// extra wrapping so its result carries a details.diff like edit.
 			async execute(toolCallId, params, signal, onUpdate) {
+				if (name === "write") {
+					const p = (params as any)?.path as string | undefined;
+					const c = (params as any)?.content;
+					if (p && typeof c === "string") {
+						// The original execute already serializes via pi's file
+						// mutation queue, so this wrapper only needs to capture the
+						// pre-write content and compute the diff afterwards.
+						return executeWriteWithDiff(p, c, original.execute, toolCallId, signal, onUpdate);
+					}
+				}
 				return original.execute(toolCallId, params, signal, onUpdate);
 			},
 
@@ -329,9 +383,35 @@ function formatResult(
 				out += fg("warning", ` (truncated from ${details.truncation.totalLines})`);
 			break;
 		}
-		case "write":
-			out = text.startsWith("Error") ? fg("error", "Error") : fg("success", "Written");
+		case "write": {
+			const diff = (details?.diff as string | undefined) ?? "";
+			if (!diff) {
+				out = text.startsWith("Error") ? fg("error", "Error") : fg("success", "Written");
+				break;
+			}
+			// Same presentation as edit: colorized diff, then a +added/-removed tally.
+			let add = 0,
+				rem = 0;
+			const diffLines = diff.split("\n");
+			for (const l of diffLines) {
+				if (l.startsWith("+") && !l.startsWith("+++")) add++;
+				else if (l.startsWith("-") && !l.startsWith("---")) rem++;
+			}
+			const maxDiff = expanded ? 0 : 24; // 0 = all
+			const shownDiff = maxDiff === 0 ? diffLines : diffLines.slice(0, maxDiff);
+			for (const l of shownDiff) {
+				if (l.startsWith("+") && !l.startsWith("+++"))
+					out += `\n${fg("toolDiffAdded", l)}`;
+				else if (l.startsWith("-") && !l.startsWith("---"))
+					out += `\n${fg("toolDiffRemoved", l)}`;
+				else out += `\n${fg("toolDiffContext", l)}`;
+			}
+			if (!expanded && diffLines.length > maxDiff)
+				out += `\n${fg("muted", `… ${diffLines.length - maxDiff} more diff lines (ctrl+o to expand)`)}`;
+			out +=
+				`\n${fg("success", `+${add}`)}${fg("dim", " / ")}${fg("error", `-${rem}`)}${fg("dim", " lines")}`;
 			break;
+		}
 		case "edit": {
 			if (text.startsWith("Error") || (result?.details?.error as string | undefined)) {
 				out = fg("error", text.split("\n")[0]);
@@ -371,9 +451,9 @@ function formatResult(
 	}
 
 	if (expanded) {
-		// bash and edit already render their full content when expanded, so we
-		// only add the raw output slice for the *other* tools.
-		if (name !== "bash" && name !== "edit") {
+		// bash, edit and write already render their full content when expanded, so
+		// we only add the raw output slice for the *other* tools.
+		if (name !== "bash" && name !== "edit" && name !== "write") {
 			const maxLines = 15;
 			const all = text.split("\n");
 			for (const l of all.slice(0, maxLines)) out += `\n${fg("dim", l)}`;
