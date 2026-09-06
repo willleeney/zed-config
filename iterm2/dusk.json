@@ -185,7 +185,7 @@
       },
       "Silence Bell": true,
       "Rows": 25,
-      "Guid": "ONEDARK-DEEPER-0001",
+      "Guid": "DUSK-MODE-0001",
       "Ansi 14 Color (Dark)": {
         "Red Component": 0.4823529411764706,
         "Color Space": "sRGB",
@@ -385,7 +385,7 @@
         "Alpha Component": 1,
         "Green Component": 0.470588
       },
-      "Name": "Dawn",
+      "Name": "Dusk",
       "Use Tab Color (Dark)": false,
       "Rewritable": true,
       "Transparency": 0.0,

@@ -37,14 +37,17 @@ Then activate with `/theme` and select "Dusk".
 
 ### iTerm2
 
-Copy the dynamic profile — iTerm2 auto-loads it, no manual import:
+Three profiles are included: **Dusk** (dark, default), **Dawn** (dark variant),
+and **Default** (light, Lilex font). Copy the dynamic profiles — iTerm2
+auto-loads them, no manual import:
 
 ```sh
-cp iterm2/dusk-mode.json "$HOME/Library/Application Support/iTerm2/DynamicProfiles/dusk-mode.json"
+cp iterm2/dusk.json iterm2/dawn.json iterm2/default.json \
+   "$HOME/Library/Application Support/iTerm2/DynamicProfiles/"
 ```
 
-Then set "Dusk Mode" as your default profile (Settings → Profiles → Other
-Actions → Set as Default). The profile also carries macOS-style shell editing keys:
+Then set "Dusk" as your default profile (Settings → Profiles → Other Actions →
+Set as Default). Dusk/Dawn carry macOS-style shell editing keys:
 
 | Shortcut | Action |
 |----------|--------|
@@ -54,8 +57,17 @@ Actions → Set as Default). The profile also carries macOS-style shell editing 
 | ⌘⌫ | delete to line start |
 | ⌥⌦ / ⌘⌦ | delete word forward / to line end |
 
-Font is IBM Plex Mono (the font behind Zed's old "Zed Plex Mono" name). To match
-Zed's *current* default instead, change `Normal Font` to `Lilex-Regular 14`.
+#### Global settings
+
+`global-settings.json` captures app-wide iTerm2 preferences (global key
+mappings, color presets, tab style, margins, pane dimming, etc.). To apply:
+
+```sh
+defaults import com.googlecode.iterm2 iterm2/global-settings.json
+```
+
+Or import selectively via Settings → General → Preferences → "Load preferences
+from a custom folder".
 
 ### Pi (coding agent)
 
@@ -131,8 +143,10 @@ cp pi/extensions/agi-graph/index.ts pi/extensions/agi-graph/rollback.sh ~/.pi/ag
 | `themes/dawn.json` | `~/.config/zed/themes/dawn.json` |
 | `zed/keymap.json` | `~/.config/zed/keymap.json` |
 | `claude-code-theme.json` | `~/.claude/themes/dusk.json` |
-| `iterm2/dusk-mode.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/dusk-mode.json` |
-| `iterm2/onedark-deeper.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/onedark-deeper.json` |
+| `iterm2/dusk.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/dusk.json` |
+| `iterm2/dawn.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/dawn.json` |
+| `iterm2/default.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/default.json` |
+| `iterm2/global-settings.json` | `defaults import com.googlecode.iterm2` |
 | `pi/settings.json` | `~/.pi/agent/settings.json` |
 | `pi/models.json` | `~/.pi/agent/models.json` |
 | `pi/mcp.json` | `~/.pi/agent/mcp.json` |
