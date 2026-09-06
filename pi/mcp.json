@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "agi": {
+      "command": "agi-mcp"
+    },
+    "discode": {
+      "url": "https://discode-api.stackone.com/mcp"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 {
-  "theme": "one-dark-deeper",
+  "lastChangelogVersion": "0.85.0",
+  "theme": "dusk",
   "ccHeader": {
     "color": "b",
     "ver": 1,
@@ -8,8 +9,9 @@
     "pkg": false,
     "speed": 50,
     "slogan": "Code something that makes you proud",
-    "sloganOn": true,
-    "sloganColor": true
+    "sloganOn": false,
+    "sloganColor": true,
+    "disabled": false
   },
   "packages": [
     "npm:pi-zentui",
