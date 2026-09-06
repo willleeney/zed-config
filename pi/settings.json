@@ -19,5 +19,9 @@
   "quietStartup": true,
   "clearOnStart": true,
   "defaultProvider": "qwen",
-  "defaultModel": "qwen3.8-27b"
+  "defaultModel": "qwen3.8-27b",
+  "terminal": {
+    "clearOnShrink": true,
+    "contentWidth": 160
+  }
 }
