@@ -619,12 +619,7 @@ export default function (pi: ExtensionAPI) {
 						context?.args,
 						isErr,
 					);
-					// bash normally hides the command (its output is the point), but on a
-					// failure show it so the command that failed is visible.
-					const argLine =
-						name === "bash" && !isErr
-							? ""
-							: formatArgs(name, context?.args, theme, isErr ? ALT_UI_CONFIG.errorArgs : ALT_UI_CONFIG.successArgs);
+					const argLine = formatArgs(name, context?.args, theme, isErr ? ALT_UI_CONFIG.errorArgs : ALT_UI_CONFIG.successArgs);
 					const body = resultBody
 						? argLine
 							? `${argLine}\n${resultBody}`
