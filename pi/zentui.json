@@ -17,7 +17,7 @@
           "completionMenu": "palette"
         },
         "accent-rail": {
-          "rail": "▎",
+          "rail": "\u258e",
           "asciiRail": "|",
           "transparent": false
         },
@@ -59,22 +59,22 @@
       "messages": {
         "custom": true,
         "values": [
-          "Sautéing…",
-          "Cooking…",
-          "Ionizing…",
-          "Zigzagging…",
-          "Razzle-dazzling…",
-          "Photosynthesizing…",
-          "Nucleating…",
-          "Brewing…",
-          "Combobulating…",
-          "Boogieing…",
-          "Befuddling…",
-          "Alchemizing…",
-          "Conjuring…",
-          "Baking…",
-          "Simmering…",
-          "Blanching…"
+          "Saut\u00e9ing\u2026",
+          "Cooking\u2026",
+          "Ionizing\u2026",
+          "Zigzagging\u2026",
+          "Razzle-dazzling\u2026",
+          "Photosynthesizing\u2026",
+          "Nucleating\u2026",
+          "Brewing\u2026",
+          "Combobulating\u2026",
+          "Boogieing\u2026",
+          "Befuddling\u2026",
+          "Alchemizing\u2026",
+          "Conjuring\u2026",
+          "Baking\u2026",
+          "Simmering\u2026",
+          "Blanching\u2026"
         ]
       },
       "segments": {
@@ -164,6 +164,7 @@
     "contextNormal": "#9a8ddb",
     "extensionStatus": "#9a8ddb",
     "editorBorder": "#5a5d63",
-    "editorAccent": "#9a8ddb"
+    "editorAccent": "#9a8ddb",
+    "editorThinking": "#9a8ddb"
   }
 }

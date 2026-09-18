@@ -1,9 +1,9 @@
 #!/bin/bash
 # Nuclear reset for pi UI — removes all custom extensions.
-# Usage: bash ~/.pi/agent/extensions/reset-pi.sh
+# Usage: bash ~/.pi/agent-dev/extensions/reset-pi.sh  (set PI_CODING_AGENT_DIR to target another instance)
 set -e
 
-EXT_DIR="$HOME/.pi/agent/extensions"
+EXT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/extensions"
 
 echo "Resetting pi extensions..."
 

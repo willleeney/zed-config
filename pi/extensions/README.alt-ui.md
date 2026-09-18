@@ -1,4 +1,4 @@
-# rounded-frames
+# alt-ui
 
 Pi extension that restyles the built-in tool-call boxes (bash, edit, read, write,
 find, grep, ls) with a one-line rounded border:
@@ -93,7 +93,7 @@ const jiti = createJiti(import.meta.url, {
     '@earendil-works/pi-tui': rw('tui/dist/index.js', '@earendil-works/pi-tui'),
   },
 });
-const factory = await jiti.import(process.env.HOME + '/.pi/agent/extensions/rounded-frames.ts', { default: true });
+const factory = await jiti.import(process.env.HOME + '/.pi/agent-dev/extensions/alt-ui.ts', { default: true });
 const tools = [];
 factory({ registerTool: (t) => tools.push(t) });
 // e.g. await tools.find(t => t.name === 'write').execute('id', { path: '/tmp/x', content: 'a\n' }, new AbortController().signal)
@@ -102,8 +102,8 @@ factory({ registerTool: (t) => tools.push(t) });
 
 ## Files & backups
 
-- Extension: `~/.pi/agent/extensions/rounded-frames.ts`
-- The editor auto-creates backups in `~/.pi/agent/extensions/.backups/`
-  (`rounded-frames.<timestamp>.ts`) — diff against the latest backup to see
+- Extension: `~/.pi/agent-dev/extensions/alt-ui.ts`
+- The editor auto-creates backups in `~/.pi/agent-dev/extensions/.backups/`
+  (`alt-ui.<timestamp>.ts` (older backups keep the `rounded-frames.` prefix)) — diff against the latest backup to see
   what a session changed.
 - Restart pi (or `/reload`) to pick up edits.
