@@ -6,6 +6,10 @@
       "headers": {
         "x-meridian-agent": "pi",
         "x-opencode-thinking": "{\"type\":\"adaptive\",\"display\":\"summarized\"}"
+      },
+      "compat": {
+        "sendSessionAffinityHeaders": true,
+        "supportsLongCacheRetention": true
       }
     },
     "qwen": {
