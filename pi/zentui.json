@@ -45,6 +45,9 @@
         "framed-copy-friendly": {},
         "compact": {},
         "labeled": {}
+      },
+      "colors": {
+        "border": "#9a8ddb"
       }
     },
     "workingLine": {
