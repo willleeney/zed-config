@@ -760,7 +760,8 @@ function formatArgs(
 			return fg(argColor, args.path ?? "");
 		case "bash": {
 			const cmd: string = (args.command ?? "").replace(/\s+/g, " ");
-			return fg(argColor, cmd.length > 80 ? `${cmd.slice(0, 77)}…` : cmd);
+			// Always render bash commands in plain white text
+			return fg("text", cmd.length > 80 ? `${cmd.slice(0, 77)}…` : cmd);
 		}
 		case "find":
 		case "grep":
