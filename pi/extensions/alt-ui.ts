@@ -289,8 +289,8 @@ class RoundedFrame {
 
 		// Top: ╭─ title ──────╮
 		const label = ` ${fg(this.titleName, this.title)} `;
-		const topFill = Math.max(0, w - 2 - visibleWidth(label));
-		const top = fillLine(`${border("╭")}${label}${border("─".repeat(topFill))}${border("╮")}`, w);
+		const topFill = Math.max(0, w - 3 - visibleWidth(label));
+		const top = fillLine(`${border("╭─")}${label}${border("─".repeat(topFill) + "╮")}`, w);
 		const lines: string[] = [top];
 
 		// Body: │ content │ (inner padding = 2 cells, budget = w-4)
@@ -303,7 +303,7 @@ class RoundedFrame {
 		}
 
 		// Bottom: ╰───────────╯
-		const bottom = fillLine(`${border("╰")}${border("─".repeat(Math.max(1, w - 2)))}${border("╯")}`, w);
+		const bottom = fillLine(border(`╰${"─".repeat(Math.max(0, w - 2))}╯`), w);
 		lines.push(bottom);
 		return lines;
 	}
