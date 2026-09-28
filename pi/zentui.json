@@ -149,6 +149,10 @@
             "colorModes": {}
           }
         }
+      },
+      "colors": {
+        "tokens": "#9a8ddb",
+        "cost": "#9a8ddb"
       }
     },
     "thinkingSteps": {
@@ -168,6 +172,7 @@
     "extensionStatus": "#9a8ddb",
     "editorBorder": "#5a5d63",
     "editorAccent": "#9a8ddb",
-    "editorThinking": "#9a8ddb"
+    "editorThinking": "#9a8ddb",
+    "tokens": "#9a8ddb"
   }
 }
