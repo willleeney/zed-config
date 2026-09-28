@@ -27,7 +27,7 @@
           "contextGauge": false,
           "showSessionName": true,
           "showTimer": false,
-          "showCost": false,
+          "showCost": true,
           "showGit": true,
           "contextThresholds": {
             "warning": 70,
@@ -123,7 +123,7 @@
             "runtime": false,
             "modelInfo": false,
             "context": false,
-            "tokens": false,
+            "tokens": true,
             "cost": true,
             "sessionDuration": false,
             "username": false,
