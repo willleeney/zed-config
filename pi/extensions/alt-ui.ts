@@ -1118,7 +1118,27 @@ let piMode: any;
 	const orig = modeProto.__altUiOrigRenderWidgets;
 	modeProto.renderWidgets = function (...args: any[]) {
 		piMode = this;
+		joinEditorCorners(this.editorContainer);
 		return orig.apply(this, args);
+	};
+}
+
+/**
+ * zentui's input box ends its top/bottom border as "─", a reset, then "╮"/"╯"
+ * re-coloured on its own. iTerm draws a box glyph that starts a new colour run
+ * slightly off from the line it joins (the same bug fixed in RoundedFrame), so
+ * drop the reset + repeated colour between them. Wraps the editor container
+ * instance, over its saved original, so /reload re-installs cleanly.
+ */
+function joinEditorCorners(container: any): void {
+	if (!container) return;
+	container.__altUiOrigRender ??= container.render;
+	const orig = container.__altUiOrigRender;
+	container.render = function (width: number) {
+		const lines: string[] = orig.call(this, width);
+		return lines.map((l) =>
+			l.replace(/(\x1b\[38;2;(\d+;\d+;\d+)m[^\x1b]*─)\x1b\[0m\x1b\[38;2;\2m([╮╯])/g, "$1$3"),
+		);
 	};
 }
 
