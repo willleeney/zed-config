@@ -13,6 +13,8 @@
  *     diffs, status badges and output formatting.
  *   - Non-built-in tools (StackOne execute_action, search_actions, list_accounts,
  *     MCP tools) are intercepted and formatted into the same rounded frame style!
+ *   - bash is pi-bg-tasks' override (vendored in ./lib/bg-tasks): run_in_background,
+ *     auto-background at timeout, Ctrl+Shift+B, bg_list/bg_output/bg_stop.
  */
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
@@ -27,11 +29,17 @@ import {
 	generateDiffString,
 	ToolExecutionComponent,
 	AssistantMessageComponent,
+	CustomMessageComponent,
+	getMarkdownTheme,
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { Container, Text, visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
+import { Container, Editor, Markdown, Text, visibleWidth, truncateToWidth, matchesKey, isKeyRelease } from "@earendil-works/pi-tui";
+import bgTasks from "./lib/bg-tasks/index.ts";
+import { jobsChangedListeners } from "./lib/bg-tasks/ui.ts";
+import { readLogTail, type BgRegistry } from "./lib/bg-tasks/registry.ts";
+import type { BgJob } from "./lib/bg-tasks/types.ts";
 
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -50,6 +58,11 @@ export const ALT_UI_CONFIG = {
 	errorBorder: "error",          // The border color on failure
 	errorTitle: "error",           // The tool name color on failure
 	errorArgs: "text",             // The color of the tool arguments on failure (plain white/default)
+
+	// Custom (extension) messages: zentui "labeled" user-message box, in grey
+	messageBorder: "#5a5d63",      // Hex border colour (matches zentui editorBorder)
+	messageLabel: "muted",         // Theme colour for the label in the top border
+	messageText: "customMessageText",
 };
 
 const CWD = process.cwd();
@@ -218,6 +231,7 @@ class RoundedFrame {
 	private titleName: string;
 	private pulse: boolean;
 	private bgHex?: string;
+	private titleSuffix?: string;
 	private cachedWidth?: number;
 	private cachedLines?: string[];
 
@@ -229,8 +243,10 @@ class RoundedFrame {
 		titleName = "accent",
 		pulse = false,
 		bgHex?: string,
+		titleSuffix?: string,
 	) {
 		this.title = title;
+		this.titleSuffix = titleSuffix;
 		this.body = body;
 		this.theme = theme;
 		this.borderName = borderName;
@@ -288,7 +304,7 @@ class RoundedFrame {
 		};
 
 		// Top: ╭─ title ──────╮
-		const label = ` ${fg(this.titleName, this.title)} `;
+		const label = ` ${fg(this.titleName, this.title)}${this.titleSuffix ?? ""} `;
 		const topFill = Math.max(0, w - 3 - visibleWidth(label));
 		const top = fillLine(`${border("╭─")}${label}${border("─".repeat(topFill) + "╮")}`, w);
 		const lines: string[] = [top];
@@ -307,6 +323,124 @@ class RoundedFrame {
 		lines.push(bottom);
 		return lines;
 	}
+}
+
+// Same shape as zentui's "labeled" user-message style (╭─ Label ───╮ with a
+// 1-cell inner pad), but the body is any component so it can wrap Markdown.
+class LabeledBox {
+	constructor(
+		private label: string,
+		private body: { render(width: number): string[] },
+		private theme: Theme,
+		private borderColor: string = ALT_UI_CONFIG.messageBorder,
+	) {}
+
+	handleInput?(): void {}
+
+	invalidate(): void {
+		(this.body as any).invalidate?.();
+	}
+
+	render(width: number): string[] {
+		const theme = this.theme;
+		// Hex colours are drawn directly; anything else is a theme colour name.
+		const rgb = hexToRgb(this.borderColor);
+		const border = rgb
+			? (s: string) => `\x1b[38;2;${rgb.r};${rgb.g};${rgb.b}m${s}\x1b[39m`
+			: (s: string) => safeFg(theme, this.borderColor, s);
+		if (width < 9) return this.body.render(Math.max(1, width)).map((l) => truncateToWidth(l, width, ""));
+
+		const contentWidth = width - 4;
+		const label = ` ${safeFg(theme, ALT_UI_CONFIG.messageLabel, this.label)} `;
+		const topFill = Math.max(0, width - 3 - visibleWidth(label));
+		const top = truncateToWidth(`${border("╭─")}${label}${border(`${"─".repeat(topFill)}╮`)}`, width, "");
+		const side = (line: string) => {
+			const clipped = truncateToWidth(line, contentWidth, "");
+			const pad = " ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)));
+			return `${border("│")} ${clipped}${pad} ${border("│")}`;
+		};
+		const bottom = border(`╰${"─".repeat(width - 2)}╯`);
+		const lines = this.body.render(contentWidth);
+		return [top, ...(lines.length ? lines : [""]).map(side), bottom];
+	}
+}
+
+// ── pi-zentui Thinking (Experimental) tweaks ─────────────────────────────────────
+// These replace local edits that used to live in pi-zentui's
+// thinking-experimental.ts, so zentui can be updated without losing them:
+//   1. Ctrl+O (expanded) shows Pi's native full thinking in every mode, not
+//      just "streaming".
+//   2. The Tree-mode "Thinking" title uses a solid "│ " connector, not "┆ ".
+// Both hook zentui from the outside and degrade to stock zentui if its
+// internals change.
+
+// Global Ctrl+O state; setToolsExpanded fans out to every component, and new
+// assistant messages must follow it too.
+let thinkingExpanded = false;
+
+// zentui keeps its prototype patches in a registry on the patched prototype.
+const ZENTUI_PATCH_REGISTRY = Symbol.for("pi-zentui.prototype-patch-registry");
+const ZENTUI_THINKING_ADAPTER = "thinking-experimental-update-content";
+const ALT_UI_WRAPPED = Symbol.for("alt-ui.zentui-thinking-wrapped");
+
+function ensureZentuiThinkingHooks(instance: any): void {
+	try {
+		// 1. Wrap zentui's registered updateContent behaviour (not the prototype
+		//    method, which zentui checks for displacement). Re-checked every call
+		//    because zentui swaps the registration on reinstall.
+		const record = (AssistantMessageComponent.prototype as any)[ZENTUI_PATCH_REGISTRY]?.get?.(
+			ZENTUI_THINKING_ADAPTER,
+		);
+		const registration = record?.registration;
+		const behavior = registration?.behavior;
+		if (typeof behavior === "function" && !behavior[ALT_UI_WRAPPED]) {
+			const wrapped = (invocation: { predecessor: Function; receiver: unknown; args: unknown[] }) =>
+				thinkingExpanded
+					? Reflect.apply(invocation.predecessor, invocation.receiver, invocation.args)
+					: behavior(invocation);
+			(wrapped as any)[ALT_UI_WRAPPED] = true;
+			registration.behavior = wrapped;
+		}
+
+		// 2. ThinkingStepsRows isn't reachable by import (zentui is a separate
+		//    package instance), so find it from a live child and patch its class.
+		if (thinkingRowsPatched || !instance?.contentContainer) return;
+		for (const child of instance.contentContainer.children ?? []) {
+			const inner = child?.child ?? child;
+			if (inner?.constructor?.name === "ThinkingStepsRows") {
+				patchThinkingRows(Object.getPrototypeOf(inner));
+				break;
+			}
+		}
+	} catch {
+		// zentui internals changed; leave its stock behaviour in place.
+	}
+}
+
+let thinkingRowsPatched = false;
+function patchThinkingRows(proto: any): void {
+	if (!proto || proto.__altUiConnectorPatched) return;
+	proto.__altUiConnectorPatched = true;
+	thinkingRowsPatched = true;
+	const origRender = proto.render;
+	proto.render = function (width: number) {
+		const rows = origRender.call(this, width);
+		// Row 0 is "<pad>┆ **Thinking**"; the connector is its first "┆".
+		// Skip zentui's native fallback, where row 0 is plain thinking text.
+		if (Array.isArray(rows) && typeof rows[0] === "string" && rows[0].includes("Thinking")) {
+			rows[0] = rows[0].replace("\u2506", "\u2502"); // "┆" → "│"
+		}
+		return rows;
+	};
+}
+
+function messageText(message: { content: string | any[] }): string {
+	return typeof message.content === "string"
+		? message.content
+		: message.content
+				.filter((c: any) => c.type === "text")
+				.map((c: any) => c.text)
+				.join("\n");
 }
 
 // ── Generic (StackOne / MCP) tool title & arg/result formatting ──────────────
@@ -551,21 +685,333 @@ function formatGenericResult(
 	return lines.join("\n");
 }
 
+// ── Background-task dock ─────────────────────────────────────────────────────
+// A single "▶ background tasks" line always below the editor: dim when nothing
+// is running, normal text while jobs run.
+// ↓ on an empty prompt selects it, Enter opens the task list (in place of the
+// editor), Enter on a task shows its live output, Esc steps back out.
+
+const BG_DOCK_KEY = "alt-ui-bg-dock";
+
+let bgReg: BgRegistry | undefined;
+let bgUi: any;
+let bgDockFocused = false;
+let bgViewOpen = false;
+
+function hasRunningBgJobs(reg: BgRegistry | undefined): boolean {
+	return !!reg && [...reg.jobs.values()].some((j) => j.status === "running" && j.isBackgrounded);
+}
+
+// Same frames/speed as zentui's working-line spinner ("braille", 100ms).
+const BG_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const BG_SPINNER_MS = 100;
+
+let bgDockTui: any;
+let bgDockUiInstalled: any;
+let bgDockLineComponent: any;
+
+function bgDockLine(theme: Theme): string {
+	const running = hasRunningBgJobs(bgReg);
+	// Only the ▶ lights up (blue) when the dock is selected; the label is plain
+	// text while jobs run and dim otherwise.
+	const labelColour = running ? "text" : "dim";
+	const spinner = running
+		? `${safeFg(theme, "accent", BG_SPINNER_FRAMES[Math.floor(Date.now() / BG_SPINNER_MS) % BG_SPINNER_FRAMES.length])} `
+		: "";
+	return (
+		`${safeFg(theme, bgDockFocused ? "accent" : labelColour, "▶")} ${spinner}${safeFg(theme, labelColour, "background tasks")}` +
+		(bgDockFocused ? safeFg(theme, "dim", "  enter to view · esc") : "")
+	);
+}
+/** Keep the dock line as the TUI's last child, i.e. below zentui's footer. */
+function keepBgDockLast(): void {
+	const tui = bgDockTui;
+	if (!tui || !bgDockLineComponent) return;
+	if (tui.children[tui.children.length - 1] === bgDockLineComponent) return;
+	tui.removeChild(bgDockLineComponent);
+	tui.addChild(bgDockLineComponent);
+	tui.requestRender();
+}
+
+/**
+ * Widgets only go above/below the editor, and the footer sits after both. So
+ * an empty below-editor widget just hands us the TUI, and the dock line is
+ * appended to the TUI root after the footer. Installed once per UI; after that
+ * a paint is just a redraw.
+ */
+function paintBgDock(): void {
+	if (!bgUi) return;
+	if (bgDockUiInstalled === bgUi) {
+		keepBgDockLast();
+		bgDockTui?.requestRender();
+		return;
+	}
+	bgDockUiInstalled = bgUi;
+	bgUi.setWidget(
+		BG_DOCK_KEY,
+		(tui: any, theme: Theme) => {
+			// Drop a dock left behind by a previous load (/reload).
+			for (const child of [...tui.children]) if (child.__altUiBgDock) tui.removeChild(child);
+			bgDockTui = tui;
+			const line = {
+				__altUiBgDock: true,
+				render: (width: number) => [truncateToWidth(` ${bgDockLine(theme)}`, width)],
+				invalidate: () => {},
+			};
+			bgDockLineComponent = line;
+			tui.addChild(line);
+			// Animate the spinner while something runs; re-assert position always
+			// (zentui re-adds its footer when it reconfigures).
+			const timer = setInterval(() => {
+				keepBgDockLast();
+				if (hasRunningBgJobs(bgReg)) tui.requestRender();
+			}, BG_SPINNER_MS);
+			timer.unref?.();
+			return {
+				render: () => [],
+				invalidate: () => {},
+				dispose: () => {
+					clearInterval(timer);
+					tui.removeChild(line);
+				},
+			};
+		},
+		{ placement: "belowEditor" },
+	);
+}
+
+// The editor always paints a fake block cursor (inverse video). Hide it while
+// the dock is selected so it's clear where the keyboard is. Hooked on the base
+// class so zentui's editor subclass is covered too. Re-installed on every load
+// (on top of the saved original) so the hook reads this module's state after
+// /reload rather than a stale copy's.
+const editorProto = Editor.prototype as any;
+editorProto.__altUiOrigRender ??= editorProto.render;
+{
+	const origEditorRender = editorProto.__altUiOrigRender;
+	editorProto.render = function (width: number) {
+		const lines: string[] = origEditorRender.call(this, width);
+		if (!bgDockFocused) return lines;
+		return lines.map((l) => l.replace(/\x1b\[7m([^\x1b]*?)\x1b\[0m/g, "$1\x1b[0m"));
+	};
+}
+
+// bg-tasks doesn't record when a job ends; note it the first time we see it finished.
+const bgJobEndTimes = new Map<string, number>();
+
+function renderBgDock(reg: BgRegistry, ctx: any): void {
+	for (const job of [...reg.jobs.values(), ...reg.recentTerminal]) {
+		if (job.status !== "running" && !bgJobEndTimes.has(job.id)) bgJobEndTimes.set(job.id, Date.now());
+	}
+	bgReg = reg;
+	bgUi = ctx.ui;
+	paintBgDock();
+}
+
+function formatElapsed(ms: number): string {
+	const s = Math.floor(ms / 1000);
+	return s >= 60 ? `${Math.floor(s / 60)}m${s % 60}s` : `${s}s`;
+}
+
+/** Background jobs, running or recently finished, oldest start first (last 20). */
+function listedBgJobs(reg: BgRegistry | undefined): BgJob[] {
+	if (!reg) return [];
+	const all = [...reg.jobs.values(), ...reg.recentTerminal].filter((j) => j.isBackgrounded || j.status !== "running");
+	const seen = new Set<string>();
+	return all
+		.filter((j) => !seen.has(j.id) && seen.add(j.id))
+		.sort((a, b) => a.startTime - b.startTime)
+		.slice(-20);
+}
+
+/** Row cells: start time, "◷ <duration>" (live while running), status. Uncoloured. */
+function bgJobCells(job: BgJob): { start: string; took: string; status: string; colour: string } {
+	const start = new Date(job.startTime).toLocaleTimeString("en-GB", { hour12: false });
+	const end = job.status === "running" ? Date.now() : (bgJobEndTimes.get(job.id) ?? Date.now());
+	const took = `◷ ${formatElapsed(end - job.startTime)}`;
+	if (job.status === "running") return { start, took, status: "running", colour: "accent" };
+	if (job.status === "completed") return { start, took, status: "✓ done", colour: "accent" };
+	const exit = job.exitCode !== undefined ? ` (exit ${job.exitCode})` : "";
+	return { start, took, status: `✗ ${job.status}${exit}`, colour: "error" };
+}
+
+function bgJobStatus(job: BgJob, theme: Theme): string {
+	const c = bgJobCells(job);
+	return `${safeFg(theme, "dim", c.start)}  ${safeFg(theme, "accent", c.took)}  ${safeFg(theme, c.colour, c.status)}`;
+}
+
+class BgTasksView {
+	private selected = 0;
+	private openJob?: BgJob;
+	private timer: ReturnType<typeof setInterval>;
+
+	constructor(
+		private tui: any,
+		private theme: Theme,
+		private done: () => void,
+	) {
+		// Keep elapsed times and log tails live.
+		this.timer = setInterval(() => this.tui.requestRender(), 1000);
+	}
+
+	handleInput(data: string): void {
+		const jobs = listedBgJobs(bgReg);
+		if (this.openJob) {
+			if (matchesKey(data, "escape")) this.openJob = undefined;
+		} else if (matchesKey(data, "escape")) {
+			return this.done();
+		} else if (matchesKey(data, "up")) {
+			this.selected = Math.max(0, this.selected - 1);
+		} else if (matchesKey(data, "down")) {
+			this.selected = Math.min(jobs.length - 1, this.selected + 1);
+		} else if (matchesKey(data, "enter") && jobs[this.selected]) {
+			this.openJob = jobs[this.selected];
+		}
+		this.tui.requestRender();
+	}
+
+	render(width: number): string[] {
+		return this.openJob ? this.renderJob(this.openJob, width) : this.renderList(width);
+	}
+
+	private renderList(width: number): string[] {
+		const fg = (c: string, t: string) => safeFg(this.theme, c, t);
+		const jobs = listedBgJobs(bgReg);
+		this.selected = Math.min(this.selected, Math.max(0, jobs.length - 1));
+		const cells = jobs.map(bgJobCells);
+		const tookW = Math.max(0, ...cells.map((c) => visibleWidth(c.took)));
+		const statusW = Math.max(0, ...cells.map((c) => visibleWidth(c.status)));
+		const rows = jobs.length
+			? jobs.map((job, i) => {
+					const c = cells[i];
+					const cmd = job.command.replace(/\s+/g, " ").trim();
+					const mark = i === this.selected ? fg("accent", "❯ ") : "  ";
+					const label = i === this.selected ? fg("text", this.theme.bold(cmd)) : fg("text", cmd);
+					return (
+						`${mark}${fg("dim", c.start)}  ${fg("accent", c.took.padEnd(tookW))}  ` +
+						`${fg(c.colour, c.status.padEnd(statusW))}  ${label}`
+					);
+				})
+			: [fg("muted", "No background tasks")];
+		rows.push("", fg("dim", "↑↓ select · enter view output · esc close"));
+		return new RoundedFrame("background tasks", rows.join("\n"), this.theme, ALT_UI_CONFIG.successBorder, ALT_UI_CONFIG.successTitle).render(width);
+	}
+
+	private renderJob(job: BgJob, width: number): string[] {
+		const fg = (c: string, t: string) => safeFg(this.theme, c, t);
+		const maxLines = Math.max(5, (this.tui.terminal?.rows ?? 30) - 14);
+		const log = readLogTail(job, 32_000).replace(/\r/g, "").split("\n");
+		while (log.length && !log[log.length - 1].trim()) log.pop();
+		const hidden = Math.max(0, log.length - maxLines);
+		const body = [
+			`${fg("text", job.command.replace(/\s+/g, " ").trim())}`,
+			`${bgJobStatus(job, this.theme)}${fg("dim", ` · ${job.id} · ${job.logPath}`)}`,
+			"",
+			...(hidden ? [fg("muted", `… ${hidden} earlier lines`)] : []),
+			...log.slice(-maxLines).map((l) => fg("dim", l)),
+			"",
+			fg("dim", "esc back"),
+		];
+		return new RoundedFrame("output", body.join("\n"), this.theme, ALT_UI_CONFIG.successBorder, ALT_UI_CONFIG.successTitle).render(width);
+	}
+
+	invalidate(): void {}
+
+	dispose(): void {
+		clearInterval(this.timer);
+	}
+}
+
+async function openBgTasksView(ui: any): Promise<void> {
+	if (bgViewOpen) return;
+	bgViewOpen = true;
+	bgDockFocused = false;
+	paintBgDock();
+	try {
+		await ui.custom((tui: any, theme: Theme, _kb: any, done: () => void) => new BgTasksView(tui, theme, done));
+	} finally {
+		bgViewOpen = false;
+		paintBgDock();
+	}
+}
+
+/** Raw-input hook: ↓ on an empty prompt focuses the dock, Enter opens it. */
+function bgDockInput(ui: any, data: string): { consume: boolean } | undefined {
+	if (bgViewOpen || isKeyRelease(data)) return;
+	if (!bgDockFocused) {
+		if (matchesKey(data, "down") && ui.getEditorText() === "") {
+			bgDockFocused = true;
+			paintBgDock();
+			return { consume: true };
+		}
+		return;
+	}
+	if (matchesKey(data, "enter")) {
+		void openBgTasksView(ui);
+		return { consume: true };
+	}
+	bgDockFocused = false;
+	paintBgDock();
+	// Esc / ↑ just leave the dock; any other key goes on to the editor.
+	if (matchesKey(data, "escape") || matchesKey(data, "up")) return { consume: true };
+	return;
+}
+
+// bg-tasks' completion line, restyled: indented to the transcript's text
+// column, blue on success, red otherwise.
+function renderBgNotification(message: any, _opts: any, theme: Theme) {
+	const details = message.details as { status?: string; summary?: string } | undefined;
+	const colour = details?.status === "completed" ? "accent" : "error";
+	const text = ` ● ${details?.summary ?? String(message.content)}`;
+	return {
+		render: (width: number) => [safeFg(theme, colour, truncateToWidth(text, width))],
+		invalidate: () => {},
+	};
+}
+
 // ── Built-in tool registration & ToolExecutionComponent patching ─────────────
 
 export default function (pi: ExtensionAPI) {
+	// 0. Load bg-tasks, but keep its `bash` override for ourselves so it gets
+	//    alt-ui's frame. Everything else it registers goes straight to pi.
+	let bgBash: any;
+	bgTasks(
+		new Proxy(pi, {
+			get(target, prop, receiver) {
+				if (prop === "registerTool") {
+					return (tool: any) => (tool.name === "bash" ? (bgBash = tool) : target.registerTool(tool));
+				}
+				if (prop === "registerMessageRenderer") {
+					return (type: string, renderer: any) =>
+						target.registerMessageRenderer(type, type === "bg-task-notification" ? renderBgNotification : renderer);
+				}
+				const v = Reflect.get(target, prop, receiver);
+				return typeof v === "function" ? v.bind(target) : v;
+			},
+		}),
+	);
+	jobsChangedListeners.add(renderBgDock);
+	pi.on("session_start", (_event, ctx) => {
+		bgUi = ctx.ui;
+		bgDockUiInstalled = undefined; // widgets don't survive a session switch
+		paintBgDock();
+		ctx.ui.onTerminalInput((data) => bgDockInput(ctx.ui, data));
+	});
+
 	// 1. Re-register built-in tools with specialized formatting
 	for (const [name, factory] of Object.entries(BUILT_INS)) {
-		const original = factory(CWD);
+		const original = name === "bash" && bgBash ? bgBash : factory(CWD);
 
 		pi.registerTool({
 			name,
 			label: name,
 			description: original.description,
+			promptSnippet: original.promptSnippet,
+			promptGuidelines: original.promptGuidelines,
 			parameters: original.parameters,
 			renderShell: "self",
 
-			async execute(toolCallId, params, signal, onUpdate) {
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				if (name === "write") {
 					const p = (params as any)?.path as string | undefined;
 					const c = (params as any)?.content;
@@ -573,7 +1019,7 @@ export default function (pi: ExtensionAPI) {
 						return executeWriteWithDiff(p, c, original.execute, toolCallId, signal, onUpdate);
 					}
 				}
-				return original.execute(toolCallId, params, signal, onUpdate);
+				return original.execute(toolCallId, params, signal, onUpdate, ctx);
 			},
 
 			renderCall(_args: any, _theme: Theme, _context: any) {
@@ -632,6 +1078,9 @@ export default function (pi: ExtensionAPI) {
 						theme,
 						isErr ? ALT_UI_CONFIG.errorBorder : ALT_UI_CONFIG.successBorder,
 						isErr ? ALT_UI_CONFIG.errorTitle : ALT_UI_CONFIG.successTitle,
+						false,
+						undefined,
+						name === "bash" && !isErr ? bashBgTitle(rawText, theme) : undefined,
 					);
 				} catch {
 					return new Text(`${name} ${safeStringify(context?.args)}`, 0, 0);
@@ -640,18 +1089,55 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
+	// Pi draws custom messages that have no renderer as a grey-background box
+	// with a "[customType]" label. Swap that for a LabeledBox so they match the
+	// zentui user-message frame. Messages with their own renderer are untouched.
+	const customProto = CustomMessageComponent.prototype as any;
+	if (customProto && !customProto.__altUiLabeledPatched) {
+		customProto.__altUiLabeledPatched = true;
+		const origRebuild = customProto.rebuild;
+		customProto.rebuild = function () {
+			origRebuild.call(this);
+			if (this.customComponent) return;
+			// Pi's live theme (same global its own `theme` proxy reads).
+			const theme = (globalThis as any)[Symbol.for("@earendil-works/pi-coding-agent:theme")];
+			if (!theme) return;
+			const body = new Markdown(messageText(this.message), 0, 0, this.markdownTheme ?? getMarkdownTheme(), {
+				color: (t: string) => safeFg(theme, ALT_UI_CONFIG.messageText, t),
+			});
+			this.removeChild(this.box);
+			// Stored as customComponent so the next rebuild() removes it.
+			this.customComponent = new LabeledBox(this.message.customType, body, theme);
+			this.addChild(this.customComponent);
+		};
+	}
+
+	// pi-mcp-adapter posts OAuth results as a "mcp-oauth-status" custom message
+	// with no renderer. Give it a status icon and a server-specific label.
+	pi.registerMessageRenderer("mcp-oauth-status", (message, _opts, theme) => {
+		const details = (message.details ?? {}) as { server?: string; status?: string };
+		const ok = details.status !== "failed";
+		const [first, ...rest] = messageText(message).split(/(?<=\.)\s+/).filter(Boolean);
+		const icon = ok ? safeFg(theme, "success", "✓") : safeFg(theme, "error", "✗");
+		const body = new Container();
+		body.addChild(new Text(`${icon} ${first ?? ""}`, 0, 0));
+		if (rest.length) body.addChild(new Text(safeFg(theme, "muted", rest.join(" ")), 2, 0));
+		const label = details.server ? `mcp auth · ${details.server}` : "mcp auth";
+		return new LabeledBox(label, body, theme, ok ? ALT_UI_CONFIG.messageBorder : ALT_UI_CONFIG.errorBorder);
+	});
+
 	// 2. Patch ToolExecutionComponent so all other tools (StackOne execute_action,
 	//    search_actions, list_accounts, MCP tools) get the exact same RoundedFrame format!
-		// Make AssistantMessageComponent expandable so Pi's setToolsExpanded (Ctrl+O)
+	// Make AssistantMessageComponent expandable so Pi's setToolsExpanded (Ctrl+O)
 	// applies globally to ALL thinking blocks as well as all tool outputs.
+	// Expanded thinking bypasses zentui's Thinking (Experimental) renderer and
+	// shows Pi's native full text (see ensureZentuiThinkingHooks).
 	const assistantProto = AssistantMessageComponent.prototype as any;
 	if (assistantProto && !assistantProto.__altUiExpandedPatched) {
 		assistantProto.__altUiExpandedPatched = true;
 		assistantProto.setExpanded = function (expanded: boolean) {
-			this.__thinkingExpanded = expanded;
-			if (typeof (globalThis as any).__setAllThinkingExpanded === "function") {
-				(globalThis as any).__setAllThinkingExpanded(expanded);
-			}
+			thinkingExpanded = expanded;
+			ensureZentuiThinkingHooks(this);
 			if (this.lastMessage) {
 				try {
 					this.updateContent(this.lastMessage);
@@ -659,6 +1145,13 @@ export default function (pi: ExtensionAPI) {
 					// ignore
 				}
 			}
+		};
+		// zentui installs its thinking patch at session start, after extensions
+		// load, so hook it lazily from the first renders instead.
+		const origRender = assistantProto.render;
+		assistantProto.render = function (width: number) {
+			ensureZentuiThinkingHooks(this);
+			return origRender.call(this, width);
 		};
 	}
 
@@ -775,6 +1268,28 @@ function formatArgs(
 	}
 }
 
+/** Parse bg-tasks' "Command … with ID: <id>. Output is being written to: <log>" result. */
+function parseBgHandoff(text: string): { why: string; id: string; logPath: string } | undefined {
+	const m = text.match(/^Command (.*?) with ID: ([^\s.]+).*?Output is being written to: (\S+)/s);
+	if (!m) return undefined;
+	const why = m[1].includes("manually")
+		? "backgrounded by you"
+		: m[1].includes("auto-backgrounded")
+			? "auto-backgrounded (timeout)"
+			: m[1].includes("moved to the background")
+				? "backgrounded (you sent a message)"
+				: "running in background";
+	return { why, id: m[2], logPath: m[3] };
+}
+
+/** " · ◷ running in background · bash-xxxx" for the frame's title bar. */
+function bashBgTitle(text: string, theme: Theme): string | undefined {
+	const bg = parseBgHandoff(text);
+	if (!bg) return undefined;
+	const dim = (t: string) => safeFg(theme, "dim", t);
+	return `${dim(" · ")}${safeFg(theme, "accent", `◷ ${bg.why}`)}${dim(` · ${bg.id}`)}`;
+}
+
 function formatResult(
 	name: string,
 	result: any,
@@ -803,6 +1318,12 @@ function formatResult(
 	let out = "";
 	switch (name) {
 		case "bash": {
+			// bg-tasks hand-off: the badge goes in the title bar (bashBgTitle).
+			const bg = !isError && parseBgHandoff(text);
+			if (bg) {
+				if (expanded) out = fg("dim", bg.logPath);
+				break;
+			}
 			// A non-zero exit is a failure even when the tool itself did not set
 			// isError, so parse the trailer pi appends to the output.
 			const exitMatch = text.match(/Command exited with code (\d+)/);
@@ -811,6 +1332,7 @@ function formatResult(
 			const failLine = fg("error", `✗ Command failed${exitCode ? ` (exit ${exitCode})` : ""}`);
 			const outText = text
 				.replace(/\n\nCommand exited with code \d+.*$/s, "")
+				.replace(/^\(no output(?: yet)?\)$/, "") // bg-tasks' empty-log placeholder
 				.trim();
 			if (!outText) {
 				out = failed ? failLine : fg("success", "Done");

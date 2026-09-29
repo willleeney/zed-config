@@ -115,11 +115,20 @@ A pi extension that restyles the built-in tool-call boxes (`read`, `bash`,
 - sits on the normal terminal background (no dark fill)
 - `edit` / `write` show a colorized diff + a `+added / -removed` tally
 - `bash` shows the command + an output slice (expand with **ctrl+o**)
+- background bash tasks (bundled [pi-bg-tasks](https://github.com/cyzlmh/pi-extensions/tree/main/pi-bg-tasks),
+  see `pi/extensions/README.alt-ui.md`): `run_in_background`, auto-background after
+  the timeout, **ctrl+shift+b** / `/bg`, and a `▶ background tasks` line below the
+  footer — **↓** on an empty prompt selects it, **enter** lists tasks, **enter** again
+  shows a task's live output, **esc** steps back
 
 ```sh
 mkdir -p ~/.pi/agent/extensions
-cp pi/extensions/rounded-frames.ts ~/.pi/agent/extensions/
+cp pi/extensions/alt-ui.ts ~/.pi/agent/extensions/
+cp -R pi/extensions/lib ~/.pi/agent/extensions/
 ```
+
+Don't also install the `pi-bg-tasks` npm package — both register `bash` and pi
+refuses to start.
 
 Then restart pi (or run `/reload`). To remove it, delete that file and restart —
 or run `bash ~/.pi/agent/extensions/reset-pi.sh` to clear all custom extensions.
@@ -153,7 +162,8 @@ cp pi/extensions/agi-graph/index.ts pi/extensions/agi-graph/rollback.sh ~/.pi/ag
 | `pi/zentui.json` | `~/.pi/agent/zentui.json` |
 | `pi/themes/dusk.json` | `~/.pi/agent/themes/dusk.json` |
 | `pi/themes/dawn.json` | `~/.pi/agent/themes/dawn.json` |
-| `pi/extensions/rounded-frames.ts` | `~/.pi/agent/extensions/rounded-frames.ts` |
+| `pi/extensions/alt-ui.ts` | `~/.pi/agent/extensions/alt-ui.ts` |
+| `pi/extensions/lib/bg-tasks/` | `~/.pi/agent/extensions/lib/bg-tasks/` |
 | `pi/extensions/reset-pi.sh` | `~/.pi/agent/extensions/reset-pi.sh` |
 | `pi/extensions/agi-graph/index.ts` | `~/.pi/agent/extensions/agi-graph/index.ts` |
 | `pi/extensions/agi-graph/rollback.sh` | `~/.pi/agent/extensions/agi-graph/rollback.sh` |

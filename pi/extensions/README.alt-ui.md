@@ -100,6 +100,38 @@ factory({ registerTool: (t) => tools.push(t) });
 // then call .renderResult(result, { expanded: false, isPartial: false }, fakeTheme, { args }) and .render(200)
 ```
 
+## Background tasks (bundled pi-bg-tasks)
+
+`lib/bg-tasks/` is a copy of [pi-bg-tasks](https://github.com/cyzlmh/pi-extensions/tree/main/pi-bg-tasks)
+0.1.4 (MIT, licence alongside), minus its tests. Pi only auto-loads
+`extensions/*.ts` and `extensions/*/index.ts`, so `lib/` is never loaded on its
+own; alt-ui imports it.
+
+- **`bash` is bg-tasks' tool, in alt-ui's frame.** alt-ui calls bg-tasks with a
+  `Proxy` of `pi` that keeps back the `bash` registration, then registers it
+  itself (execute / params / prompt guidelines from bg-tasks, renderers from
+  alt-ui). Everything else bg-tasks registers (`bg_list`, `bg_output`,
+  `bg_stop`, ctrl+shift+b, `/bg`, `/bg-tasks`, hooks) goes straight to pi.
+  Its `bg-task-notification` renderer is swapped for alt-ui's (indented, blue on
+  success, red otherwise). **Never install the `pi-bg-tasks` npm package as
+  well** — two `bash` registrations and pi won't start.
+- **Frame title:** a backgrounded call shows `bash · ◷ <reason> · <task id>` in
+  the title bar (parsed from bg-tasks' result text, see `parseBgHandoff`).
+- **Dock:** one line, `▶ ⠹ background tasks`, appended to the TUI root *after*
+  zentui's footer (widgets can only go above/below the editor). An empty
+  below-editor widget exists only to hand over the TUI; a 100ms timer keeps the
+  line last and animates the spinner (zentui's braille frames) while jobs run.
+  Dim when idle. ↓ on an empty prompt selects it (only the `▶` turns blue, the
+  editor's fake cursor is hidden via an `Editor.prototype.render` hook), enter
+  opens `BgTasksView` in place of the editor: tasks by start time with start
+  time, `◷ duration` and status; enter shows a task's live log; esc steps back.
+- **Edits to the vendored copy** are limited to `lib/bg-tasks/ui.ts`, marked
+  `alt-ui`: `jobsChangedListeners` (called from `renderStatusPill` on every job
+  state change) and skipping the footer status pill while alt-ui listens.
+  Re-apply those two if you update the copy.
+- Prototype hooks that read module state must re-install on every load
+  (`__altUiOrigRender`), otherwise after `/reload` they read a stale module.
+
 ## Files & backups
 
 - Extension: `~/.pi/agent-dev/extensions/alt-ui.ts`
