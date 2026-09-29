@@ -30,16 +30,21 @@ import {
 	ToolExecutionComponent,
 	AssistantMessageComponent,
 	CustomMessageComponent,
+	InteractiveMode,
+	UserMessageComponent,
 	getMarkdownTheme,
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { Container, Editor, Markdown, Text, visibleWidth, truncateToWidth, matchesKey, isKeyRelease } from "@earendil-works/pi-tui";
+import { Container, Editor, Markdown, Spacer, Text, visibleWidth, truncateToWidth, matchesKey, isKeyRelease } from "@earendil-works/pi-tui";
 import bgTasks from "./lib/bg-tasks/index.ts";
 import { jobsChangedListeners } from "./lib/bg-tasks/ui.ts";
 import { readLogTail, type BgRegistry } from "./lib/bg-tasks/registry.ts";
 import type { BgJob } from "./lib/bg-tasks/types.ts";
+import subagentsLite from "./lib/subagents-lite/index.ts";
+import { altUiHooks, getManager as getAgentManager, getStore as getSubagentsStore } from "./lib/subagents-lite/shell.ts";
+import type { AgentRecord } from "./lib/subagents-lite/types.ts";
 
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -404,7 +409,8 @@ function ensureZentuiThinkingHooks(instance: any): void {
 
 		// 2. ThinkingStepsRows isn't reachable by import (zentui is a separate
 		//    package instance), so find it from a live child and patch its class.
-		if (thinkingRowsPatched || !instance?.contentContainer) return;
+		//    Checked on every render: after /reload zentui brings a new class.
+		if (!instance?.contentContainer) return;
 		for (const child of instance.contentContainer.children ?? []) {
 			const inner = child?.child ?? child;
 			if (inner?.constructor?.name === "ThinkingStepsRows") {
@@ -417,11 +423,9 @@ function ensureZentuiThinkingHooks(instance: any): void {
 	}
 }
 
-let thinkingRowsPatched = false;
 function patchThinkingRows(proto: any): void {
 	if (!proto || proto.__altUiConnectorPatched) return;
 	proto.__altUiConnectorPatched = true;
-	thinkingRowsPatched = true;
 	const origRender = proto.render;
 	proto.render = function (width: number) {
 		const rows = origRender.call(this, width);
@@ -458,6 +462,7 @@ function cleanToolTitle(toolName: string, args: any): string {
 	if (toolName.startsWith("stackone_") || toolName.startsWith("stackone-dev_")) {
 		return toolName.replace(/^stackone(-dev)?_/, "");
 	}
+	if (toolName === "Agent") return `Agent · ${args?.agent || "general-purpose"}`;
 	if (toolName === "mcp") {
 		if (args?.tool) return `mcp: ${args.tool}`;
 		if (args?.search) return "mcp: search";
@@ -476,6 +481,14 @@ function formatGenericArgs(
 ): string {
 	const fg = (c: string, s: string) => safeFg(theme, c, s);
 	if (!args || typeof args !== "object") return "";
+
+	// subagents-lite's Agent: "<type>  <description>" instead of raw JSON.
+	if (toolName === "Agent") {
+		const oneLine = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim();
+		const desc = oneLine(args.description);
+		const prompt = oneLine(args.prompt);
+		return [desc && fg("text", desc), prompt && fg("dim", prompt)].filter(Boolean).join("\n");
+	}
 
 	const actionId = String(args.action_id || toolName);
 
@@ -652,6 +665,8 @@ function formatGenericResult(
 	}
 
 	if (!rawText) return fg("success", "✓ Done");
+	// Background Agent hand-off: status + id go in the title bar (agentBgTitle).
+	if (toolName === "Agent" && rawText.startsWith("[Agent running]")) return "";
 
 	let textToParse = rawText;
 	let truncationInfo = "";
@@ -685,18 +700,24 @@ function formatGenericResult(
 	return lines.join("\n");
 }
 
-// ── Background-task dock ─────────────────────────────────────────────────────
-// A single "▶ background tasks" line always below the editor: dim when nothing
-// is running, normal text while jobs run.
-// ↓ on an empty prompt selects it, Enter opens the task list (in place of the
-// editor), Enter on a task shows its live output, Esc steps back out.
+// ── Dock: background tasks + subagents ──────────────────────────────────────
+// Two lines always below the footer, "▶ background tasks" and "▶ subagents":
+// dim when nothing is running, normal text + spinner while something runs.
+// ↓ on an empty prompt selects the first, ↓/↑ move between them, Enter opens
+// that list (in place of the editor), Enter on an item opens it (a task's live
+// output / an agent's live conversation), Esc steps back out.
 
 const BG_DOCK_KEY = "alt-ui-bg-dock";
 
 let bgReg: BgRegistry | undefined;
 let bgUi: any;
-let bgDockFocused = false;
+/** Which dock line has the keyboard, if any. */
+let dockFocus: "bg" | "agents" | undefined;
 let bgViewOpen = false;
+
+function runningAgents(): AgentRecord[] {
+	return (getAgentManager()?.listAgents() ?? []).filter((r) => r.lifecycle.status === "running" || r.lifecycle.status === "queued");
+}
 
 function hasRunningBgJobs(reg: BgRegistry | undefined): boolean {
 	return !!reg && [...reg.jobs.values()].some((j) => j.status === "running" && j.isBackgrounded);
@@ -710,18 +731,32 @@ let bgDockTui: any;
 let bgDockUiInstalled: any;
 let bgDockLineComponent: any;
 
-function bgDockLine(theme: Theme): string {
-	const running = hasRunningBgJobs(bgReg);
-	// Only the ▶ lights up (blue) when the dock is selected; the label is plain
-	// text while jobs run and dim otherwise.
+/** Subagent spinner colour: the purple zentui uses for user messages / footer. */
+const AGENT_SPINNER_HEX = "#9a8ddb";
+
+function dockLine(theme: Theme, label: string, running: boolean, focused: boolean, spinnerHex?: string): string {
+	// Only the ▶ lights up (blue) when the line is selected; the label is plain
+	// text while something runs and dim otherwise.
 	const labelColour = running ? "text" : "dim";
+	const frame = BG_SPINNER_FRAMES[Math.floor(Date.now() / BG_SPINNER_MS) % BG_SPINNER_FRAMES.length];
+	const rgb = spinnerHex ? hexToRgb(spinnerHex) : null;
 	const spinner = running
-		? `${safeFg(theme, "accent", BG_SPINNER_FRAMES[Math.floor(Date.now() / BG_SPINNER_MS) % BG_SPINNER_FRAMES.length])} `
+		? `${rgb ? `\x1b[38;2;${rgb.r};${rgb.g};${rgb.b}m${frame}\x1b[39m` : safeFg(theme, "accent", frame)} `
 		: "";
 	return (
-		`${safeFg(theme, bgDockFocused ? "accent" : labelColour, "▶")} ${spinner}${safeFg(theme, labelColour, "background tasks")}` +
-		(bgDockFocused ? safeFg(theme, "dim", "  enter to view · esc") : "")
+		`${safeFg(theme, focused ? "accent" : labelColour, "▶")} ${spinner}${safeFg(theme, labelColour, label)}` +
+		(focused ? safeFg(theme, "dim", "  enter to view · esc") : "")
 	);
+}
+
+function dockLines(theme: Theme): string[] {
+	return [
+		dockLine(theme, "background tasks", hasRunningBgJobs(bgReg), dockFocus === "bg"),
+		dockLine(theme, "subagents", runningAgents().length > 0, dockFocus === "agents", AGENT_SPINNER_HEX) +
+			(subView && dockFocus !== "agents"
+				? safeFg(theme, "dim", `  viewing ${subView.record.display.type} · esc back to main`)
+				: ""),
+	];
 }
 /** Keep the dock line as the TUI's last child, i.e. below zentui's footer. */
 function keepBgDockLast(): void {
@@ -755,16 +790,19 @@ function paintBgDock(): void {
 			bgDockTui = tui;
 			const line = {
 				__altUiBgDock: true,
-				render: (width: number) => [truncateToWidth(` ${bgDockLine(theme)}`, width)],
+				render: (width: number) => dockLines(theme).map((l) => truncateToWidth(` ${l}`, width)),
 				invalidate: () => {},
 			};
 			bgDockLineComponent = line;
 			tui.addChild(line);
-			// Animate the spinner while something runs; re-assert position always
-			// (zentui re-adds its footer when it reconfigures).
+			// Animate the spinner while something runs (plus one redraw when that
+			// stops); re-assert position always (zentui re-adds its footer).
+			let wasBusy = false;
 			const timer = setInterval(() => {
 				keepBgDockLast();
-				if (hasRunningBgJobs(bgReg)) tui.requestRender();
+				const busy = hasRunningBgJobs(bgReg) || runningAgents().length > 0;
+				if (busy || wasBusy) tui.requestRender();
+				wasBusy = busy;
 			}, BG_SPINNER_MS);
 			timer.unref?.();
 			return {
@@ -791,7 +829,7 @@ editorProto.__altUiOrigRender ??= editorProto.render;
 	const origEditorRender = editorProto.__altUiOrigRender;
 	editorProto.render = function (width: number) {
 		const lines: string[] = origEditorRender.call(this, width);
-		if (!bgDockFocused) return lines;
+		if (!dockFocus) return lines;
 		return lines.map((l) => l.replace(/\x1b\[7m([^\x1b]*?)\x1b\[0m/g, "$1\x1b[0m"));
 	};
 }
@@ -800,6 +838,7 @@ editorProto.__altUiOrigRender ??= editorProto.render;
 const bgJobEndTimes = new Map<string, number>();
 
 function renderBgDock(reg: BgRegistry, ctx: any): void {
+	if (ctx.hasUI === false) return; // a subagent's own bg jobs, not ours
 	for (const job of [...reg.jobs.values(), ...reg.recentTerminal]) {
 		if (job.status !== "running" && !bgJobEndTimes.has(job.id)) bgJobEndTimes.set(job.id, Date.now());
 	}
@@ -922,38 +961,327 @@ class BgTasksView {
 	}
 }
 
-async function openBgTasksView(ui: any): Promise<void> {
+async function openDockView(ui: any, which: "bg" | "agents"): Promise<void> {
 	if (bgViewOpen) return;
 	bgViewOpen = true;
-	bgDockFocused = false;
+	dockFocus = undefined;
 	paintBgDock();
+	let picked: AgentRecord | undefined;
 	try {
-		await ui.custom((tui: any, theme: Theme, _kb: any, done: () => void) => new BgTasksView(tui, theme, done));
+		picked = await ui.custom((tui: any, theme: Theme, _kb: any, done: (r?: AgentRecord) => void) =>
+			which === "bg" ? new BgTasksView(tui, theme, () => done()) : new AgentsView(tui, theme, done),
+		);
 	} finally {
 		bgViewOpen = false;
 		paintBgDock();
 	}
+	if (picked) openSubagentView(picked);
 }
 
-/** Raw-input hook: ↓ on an empty prompt focuses the dock, Enter opens it. */
+/** True when ↓ has nowhere to go inside the editor (last line, no autocomplete). */
+function cursorOnLastEditorLine(): boolean {
+	const ed = piMode?.editor;
+	const base = ed?.base ?? ed; // zentui may wrap pi's editor
+	if (!base?.getCursor || !base?.getLines) return true;
+	if (base.isShowingAutocomplete?.()) return false;
+	return base.getCursor().line >= base.getLines().length - 1;
+}
+
+/** Raw-input hook: ↓ on the editor's last line focuses the dock, ↓/↑ move, Enter opens. */
 function bgDockInput(ui: any, data: string): { consume: boolean } | undefined {
 	if (bgViewOpen || isKeyRelease(data)) return;
-	if (!bgDockFocused) {
-		if (matchesKey(data, "down") && ui.getEditorText() === "") {
-			bgDockFocused = true;
-			paintBgDock();
-			return { consume: true };
-		}
+	const sub = subViewInput(ui, data);
+	if (sub) return sub;
+	const focus = (next: typeof dockFocus) => {
+		dockFocus = next;
+		paintBgDock();
+		return { consume: true };
+	};
+	if (!dockFocus) {
+		if (matchesKey(data, "down") && cursorOnLastEditorLine()) return focus("bg");
 		return;
 	}
 	if (matchesKey(data, "enter")) {
-		void openBgTasksView(ui);
+		void openDockView(ui, dockFocus);
 		return { consume: true };
 	}
-	bgDockFocused = false;
+	if (matchesKey(data, "down")) return focus("agents");
+	if (matchesKey(data, "up")) return focus(dockFocus === "agents" ? "bg" : undefined);
+	if (matchesKey(data, "escape")) return focus(undefined);
+	// Any other key leaves the dock and goes on to the editor.
+	focus(undefined);
+	return;
+}
+
+// subagents-lite's completion card, replaced by one line in the same style as
+// bg-tasks': ● Subagent Explore "Find the config loader" completed · 42s
+function renderAgentNotification(message: any, _opts: any, theme: Theme) {
+	const d = (message.details ?? {}) as { status?: string; type?: string; description?: string };
+	const ok = d.status === "completed";
+	const what = [d.type, d.description ? `"${d.description}"` : ""].filter(Boolean).join(" ");
+	const text = ` ● Subagent ${what} ${ok ? "completed" : (d.status ?? "finished")}`;
+	return {
+		render: (width: number) => [safeFg(theme, ok ? "accent" : "error", truncateToWidth(text, width))],
+		invalidate: () => {},
+	};
+}
+
+// ── Subagents list ──────────────────────────────────────────────────────────
+
+/** Subagents, oldest start first (last 20). */
+function listedAgents(): AgentRecord[] {
+	return [...(getAgentManager()?.listAgents() ?? [])].sort((a, b) => a.lifecycle.startedAt - b.lifecycle.startedAt).slice(-20);
+}
+
+/** Row cells for an agent, same shape as bgJobCells. */
+function agentCells(r: AgentRecord): { start: string; took: string; status: string; colour: string } {
+	const { status, startedAt, completedAt } = r.lifecycle;
+	const start = new Date(startedAt).toLocaleTimeString("en-GB", { hour12: false });
+	const took = `◷ ${formatElapsed((completedAt ?? Date.now()) - startedAt)}`;
+	if (status === "running") return { start, took, status: "running", colour: "accent" };
+	if (status === "queued") return { start, took, status: "queued", colour: "muted" };
+	if (status === "completed") return { start, took, status: "✓ done", colour: "accent" };
+	const label = status === "turn_limited" ? "turn limit" : status;
+	return { start, took, status: `✗ ${label}`, colour: "error" };
+}
+
+class AgentsView {
+	private selected = 0;
+	private timer: ReturnType<typeof setInterval>;
+
+	constructor(
+		private tui: any,
+		private theme: Theme,
+		/** Close the list; pass an agent to open it in the main window. */
+		private done: (picked?: AgentRecord) => void,
+	) {
+		this.timer = setInterval(() => this.tui.requestRender(), 1000);
+	}
+
+	handleInput(data: string): void {
+		const agents = listedAgents();
+		if (matchesKey(data, "escape")) return this.done();
+		if (matchesKey(data, "up")) this.selected = Math.max(0, this.selected - 1);
+		else if (matchesKey(data, "down")) this.selected = Math.min(agents.length - 1, this.selected + 1);
+		else if (matchesKey(data, "enter") && agents[this.selected]) return this.done(agents[this.selected]);
+		else if (matchesKey(data, "x")) {
+			// Stop the selected agent (same as StopAgent / the package's menu).
+			const r = agents[this.selected];
+			if (r && (r.lifecycle.status === "running" || r.lifecycle.status === "queued")) getAgentManager()?.abort(r.id, "user");
+		}
+		this.tui.requestRender();
+	}
+
+	render(width: number): string[] {
+		const fg = (c: string, t: string) => safeFg(this.theme, c, t);
+		const agents = listedAgents();
+		this.selected = Math.min(this.selected, Math.max(0, agents.length - 1));
+		const cells = agents.map(agentCells);
+		const tookW = Math.max(0, ...cells.map((c) => visibleWidth(c.took)));
+		const statusW = Math.max(0, ...cells.map((c) => visibleWidth(c.status)));
+		const typeW = Math.max(0, ...agents.map((r) => visibleWidth(r.display.type)));
+		const rows = agents.length
+			? agents.map((r, i) => {
+					const c = cells[i];
+					const desc = r.display.description.replace(/\s+/g, " ").trim();
+					const mark = i === this.selected ? fg("accent", "❯ ") : "  ";
+					const label = i === this.selected ? fg("text", this.theme.bold(desc)) : fg("text", desc);
+					return (
+						`${mark}${fg("dim", c.start)}  ${fg("accent", c.took.padEnd(tookW))}  ` +
+						`${fg(c.colour, c.status.padEnd(statusW))}  ${fg("muted", r.display.type.padEnd(typeW))}  ${label}`
+					);
+				})
+			: [fg("muted", "No subagents")];
+		rows.push("", fg("dim", "↑↓ select · enter open · x stop · esc close"));
+		return new RoundedFrame("subagents", rows.join("\n"), this.theme, ALT_UI_CONFIG.successBorder, ALT_UI_CONFIG.successTitle).render(width);
+	}
+
+	invalidate(): void {}
+
+	dispose(): void {
+		clearInterval(this.timer);
+	}
+}
+
+// ── Subagent in the main window ─────────────────────────────────────────────
+// Opening a subagent swaps pi's chat container for one showing the subagent's
+// session, built from pi's own message components (so alt-ui frames, zentui
+// user boxes and thinking all look the same). The editor, footer and dock
+// stay: Enter sends the subagent a steering message, Esc swaps the main chat
+// back. The main session keeps appending to its own (hidden) container.
+
+/** pi's InteractiveMode, captured from its renderWidgets (see the hook below). */
+let piMode: any;
+{
+	const modeProto = InteractiveMode.prototype as any;
+	modeProto.__altUiOrigRenderWidgets ??= modeProto.renderWidgets;
+	const orig = modeProto.__altUiOrigRenderWidgets;
+	modeProto.renderWidgets = function (...args: any[]) {
+		piMode = this;
+		return orig.apply(this, args);
+	};
+}
+
+/** The component whose children include `target`, searched from `root`. */
+function findParent(root: any, target: any, depth = 0): any {
+	if (!root?.children || depth > 6) return undefined;
+	if (root.children.includes(target)) return root;
+	for (const child of root.children) {
+		const hit = findParent(child, target, depth + 1);
+		if (hit) return hit;
+	}
+	return undefined;
+}
+
+let subView:
+	| { record: AgentRecord; chat: Container; unsubscribe: () => void; lastAssistant?: any; timer?: ReturnType<typeof setTimeout> }
+	| undefined;
+
+function buildSubagentChat(view: NonNullable<typeof subView>): void {
+	const mode = piMode;
+	const tui = mode.ui;
+	const theme = bgUi?.theme;
+	const md = mode.getMarkdownThemeWithSettings?.() ?? getMarkdownTheme();
+	const r = view.record;
+	const chat = view.chat;
+	chat.clear();
+	if (theme) {
+		chat.addChild(
+			new Text(
+				`${safeFg(theme, "accent", `◂ subagent · ${r.display.type}`)}${safeFg(theme, "dim", " · ")}` +
+					`${safeFg(theme, "text", r.display.description)}${safeFg(theme, "dim", `  ·  ${agentCells(r).status}  ·  esc back to main`)}`,
+				1,
+				0,
+			),
+		);
+	}
+	const pending = new Map<string, any>();
+	view.lastAssistant = undefined;
+	for (const msg of (r.execution?.session?.messages ?? []) as any[]) {
+		if (msg.role === "user") {
+			const text = typeof msg.content === "string" ? msg.content : msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+			if (!text) continue;
+			chat.addChild(new Spacer(1));
+			chat.addChild(new UserMessageComponent(text, md, mode.outputPad));
+		} else if (msg.role === "assistant") {
+			const component = new AssistantMessageComponent(msg, mode.hideThinkingBlock, md, mode.hiddenThinkingLabel, mode.outputPad);
+			chat.addChild(component);
+			view.lastAssistant = { component, msg };
+			for (const c of msg.content) {
+				if (c.type !== "toolCall") continue;
+				const tool = new ToolExecutionComponent(
+					c.name,
+					c.id,
+					c.arguments,
+					{ showImages: false },
+					mode.getRegisteredToolDefinition?.(c.name),
+					tui,
+					r.display.worktreePath ?? mode.sessionManager?.getCwd?.() ?? CWD,
+				);
+				tool.setExpanded(!!mode.toolOutputExpanded);
+				chat.addChild(tool);
+				pending.set(c.id, tool);
+			}
+		} else if (msg.role === "toolResult") {
+			pending.get(msg.toolCallId)?.updateResult(msg);
+		}
+	}
+	tui.requestRender(true);
+}
+
+/**
+ * While a subagent is on screen, zentui's editor shows "◂ subagent · <type> ·
+ * <description>" where it normally shows the session name (top-left of its
+ * border). zentui reads that through the editor's getModelMeta(); wrap it on
+ * the instance so the real session name is untouched.
+ */
+function labelEditorForSubagent(): void {
+	const ed = piMode?.editor;
+	if (!ed || ed.__altUiMetaWrapped) return;
+	ed.__altUiMetaWrapped = true;
+	// zentui's minimalist style reads getMinimalistMetadata(), the others getModelMeta().
+	for (const key of ["getModelMeta", "getMinimalistMetadata"]) {
+		const orig = ed[key];
+		if (typeof orig !== "function") continue;
+		ed[key] = () => {
+			const meta = orig.call(ed);
+			if (!subView) return meta;
+			const r = subView.record;
+			return { ...meta, sessionName: `◂ subagent · ${r.display.type} · ${r.display.description.replace(/\s+/g, " ").trim()}` };
+		};
+	}
+}
+
+function openSubagentView(record: AgentRecord): void {
+	const mode = piMode;
+	const session = record.execution?.session;
+	if (!mode || !session) {
+		bgUi?.notify("That subagent hasn't started yet.", "info");
+		return;
+	}
+	closeSubagentView();
+	const chat = new Container();
+	// The chat sits inside a layout container, not directly on the TUI root.
+	const parent = findParent(mode.ui, mode.chatContainer);
+	if (!parent) return;
+	parent.children[parent.children.indexOf(mode.chatContainer)] = chat;
+	const view: NonNullable<typeof subView> = { record, chat, unsubscribe: () => {} };
+	subView = view;
+	const rebuildSoon = () => {
+		if (view.timer) return;
+		view.timer = setTimeout(() => {
+			view.timer = undefined;
+			if (subView === view) buildSubagentChat(view);
+		}, 80);
+	};
+	view.unsubscribe = session.subscribe((event: any) => {
+		if (subView !== view) return;
+		// Streaming text/thinking: update the live message in place; anything
+		// else (new message, tool start/end) rebuilds.
+		const msgs = session.messages;
+		const last = msgs[msgs.length - 1];
+		if (event?.type === "message_update" && view.lastAssistant?.msg === last) {
+			view.lastAssistant.component.updateContent(last);
+			mode.ui.requestRender();
+		} else rebuildSoon();
+	});
+	labelEditorForSubagent();
+	buildSubagentChat(view);
 	paintBgDock();
-	// Esc / ↑ just leave the dock; any other key goes on to the editor.
-	if (matchesKey(data, "escape") || matchesKey(data, "up")) return { consume: true };
+}
+
+function closeSubagentView(): void {
+	const view = subView;
+	if (!view) return;
+	subView = undefined;
+	view.unsubscribe();
+	if (view.timer) clearTimeout(view.timer);
+	const mode = piMode;
+	const parent = mode && findParent(mode.ui, view.chat);
+	if (parent) parent.children[parent.children.indexOf(view.chat)] = mode.chatContainer;
+	mode?.ui.requestRender(true);
+	paintBgDock();
+}
+
+/** Keys while a subagent is on screen: Esc returns, Enter steers it. */
+function subViewInput(ui: any, data: string): { consume: boolean } | undefined {
+	if (!subView || isKeyRelease(data)) return;
+	if (matchesKey(data, "escape") && !dockFocus) {
+		closeSubagentView();
+		return { consume: true };
+	}
+	if (matchesKey(data, "enter") && !dockFocus) {
+		const text = ui.getEditorText().trim();
+		if (!text) return { consume: true };
+		const r = subView.record;
+		if (r.lifecycle.status === "running" || r.lifecycle.status === "queued") {
+			getAgentManager()?.steer(r.id, text);
+			ui.setEditorText("");
+		} else {
+			ui.notify("This subagent has finished; Esc to go back to the main chat.", "info");
+		}
+		return { consume: true };
+	}
 	return;
 }
 
@@ -991,7 +1319,44 @@ export default function (pi: ExtensionAPI) {
 		}),
 	);
 	jobsChangedListeners.add(renderBgDock);
+
+	// 0b. Load subagents-lite. alt-ui draws its UI (the "▶ subagents" dock line
+	//     and list) and the completion line; the rest is registered as-is.
+	altUiHooks.ownsUi = true;
+	subagentsLite(
+		new Proxy(pi, {
+			get(target, prop, receiver) {
+				if (prop === "registerMessageRenderer") {
+					return (type: string, renderer: any) =>
+						target.registerMessageRenderer(type, type === "subagent-result" ? renderAgentNotification : renderer);
+				}
+				// Subagents always run in the background: the call returns at once and
+				// the result arrives as a message. The flag is dropped from the schema
+				// so the model can't ask for a blocking run.
+				if (prop === "registerTool") {
+					return (tool: any) => {
+						if (tool.name !== "Agent") return target.registerTool(tool);
+						const { run_in_background: _drop, ...props } = tool.parameters.properties;
+						const required = tool.parameters.required?.filter((k: string) => k !== "run_in_background");
+						target.registerTool({
+							...tool,
+							parameters: { ...tool.parameters, properties: props, ...(required ? { required } : {}) },
+							execute: (id: string, params: any, ...rest: any[]) =>
+								tool.execute(id, { ...params, run_in_background: true }, ...rest),
+						});
+					};
+				}
+				const v = Reflect.get(target, prop, receiver);
+				return typeof v === "function" ? v.bind(target) : v;
+			},
+		}),
+	);
+
+	pi.on("session_shutdown", () => closeSubagentView());
 	pi.on("session_start", (_event, ctx) => {
+		// Subagent sessions load extensions too, in-process; the dock belongs to
+		// the interactive parent only.
+		if (!ctx.hasUI) return;
 		bgUi = ctx.ui;
 		bgDockUiInstalled = undefined; // widgets don't survive a session switch
 		paintBgDock();
@@ -1093,9 +1458,9 @@ export default function (pi: ExtensionAPI) {
 	// with a "[customType]" label. Swap that for a LabeledBox so they match the
 	// zentui user-message frame. Messages with their own renderer are untouched.
 	const customProto = CustomMessageComponent.prototype as any;
-	if (customProto && !customProto.__altUiLabeledPatched) {
-		customProto.__altUiLabeledPatched = true;
-		const origRebuild = customProto.rebuild;
+	if (customProto) {
+		customProto.__altUiOrigRebuild ??= customProto.rebuild;
+		const origRebuild = customProto.__altUiOrigRebuild;
 		customProto.rebuild = function () {
 			origRebuild.call(this);
 			if (this.customComponent) return;
@@ -1133,8 +1498,8 @@ export default function (pi: ExtensionAPI) {
 	// Expanded thinking bypasses zentui's Thinking (Experimental) renderer and
 	// shows Pi's native full text (see ensureZentuiThinkingHooks).
 	const assistantProto = AssistantMessageComponent.prototype as any;
-	if (assistantProto && !assistantProto.__altUiExpandedPatched) {
-		assistantProto.__altUiExpandedPatched = true;
+	if (assistantProto) {
+		assistantProto.__altUiOrigRender ??= assistantProto.render;
 		assistantProto.setExpanded = function (expanded: boolean) {
 			thinkingExpanded = expanded;
 			ensureZentuiThinkingHooks(this);
@@ -1148,7 +1513,7 @@ export default function (pi: ExtensionAPI) {
 		};
 		// zentui installs its thinking patch at session start, after extensions
 		// load, so hook it lazily from the first renders instead.
-		const origRender = assistantProto.render;
+		const origRender = assistantProto.__altUiOrigRender;
 		assistantProto.render = function (width: number) {
 			ensureZentuiThinkingHooks(this);
 			return origRender.call(this, width);
@@ -1156,13 +1521,17 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const proto = ToolExecutionComponent.prototype as any;
-	if (proto && !proto.__altUiPatched) {
-		proto.__altUiPatched = true;
-
-		const origHasRendererDefinition = proto.hasRendererDefinition;
-		const origGetRenderShell = proto.getRenderShell;
-		const origGetCallRenderer = proto.getCallRenderer;
-		const origGetResultRenderer = proto.getResultRenderer;
+	// Re-installed on every load (over pi's saved originals) so /reload picks up
+	// edits to the formatting code instead of keeping the first load's closures.
+	if (proto) {
+		proto.__altUiOrig ??= {
+			getRenderShell: proto.getRenderShell,
+			getCallRenderer: proto.getCallRenderer,
+			getResultRenderer: proto.getResultRenderer,
+		};
+		const origGetRenderShell = proto.__altUiOrig.getRenderShell;
+		const origGetCallRenderer = proto.__altUiOrig.getCallRenderer;
+		const origGetResultRenderer = proto.__altUiOrig.getResultRenderer;
 
 		proto.hasRendererDefinition = function () {
 			return true;
@@ -1230,7 +1599,16 @@ export default function (pi: ExtensionAPI) {
 				const body = resText ? (argLine ? `${argLine}\n${resText}` : resText) : argLine;
 				const border = isErr ? "error" : "borderAccent";
 				stopPulse(context);
-				return new RoundedFrame(title, body, theme, isErr ? ALT_UI_CONFIG.errorBorder : ALT_UI_CONFIG.successBorder, isErr ? ALT_UI_CONFIG.errorTitle : ALT_UI_CONFIG.successTitle);
+				return new RoundedFrame(
+					title,
+					body,
+					theme,
+					isErr ? ALT_UI_CONFIG.errorBorder : ALT_UI_CONFIG.successBorder,
+					isErr ? ALT_UI_CONFIG.errorTitle : ALT_UI_CONFIG.successTitle,
+					false,
+					undefined,
+					self.toolName === "Agent" && !isErr ? agentBgTitle(result, theme) : undefined,
+				);
 			};
 		};
 	}
@@ -1266,6 +1644,15 @@ function formatArgs(
 			return fg("dim", s.length > 80 ? `${s.slice(0, 77)}…` : s);
 		}
 	}
+}
+
+/** " · ◷ running in background · <agent id>" for a backgrounded Agent call. */
+function agentBgTitle(result: any, theme: Theme): string | undefined {
+	const text: string = result?.content?.[0]?.text ?? "";
+	if (!text.startsWith("[Agent running]")) return undefined;
+	const id = result?.details?.agentId ?? text.match(/Agent ID: (\S+)/)?.[1] ?? "";
+	const dim = (t: string) => safeFg(theme, "dim", t);
+	return `${dim(" · ")}${safeFg(theme, "accent", "◷ running in background")}${id ? dim(` · ${id.slice(0, 8)}`) : ""}`;
 }
 
 /** Parse bg-tasks' "Command … with ID: <id>. Output is being written to: <log>" result. */

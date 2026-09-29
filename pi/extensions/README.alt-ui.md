@@ -129,8 +129,37 @@ own; alt-ui imports it.
   `alt-ui`: `jobsChangedListeners` (called from `renderStatusPill` on every job
   state change) and skipping the footer status pill while alt-ui listens.
   Re-apply those two if you update the copy.
-- Prototype hooks that read module state must re-install on every load
-  (`__altUiOrigRender`), otherwise after `/reload` they read a stale module.
+- Prototype hooks that read module state must re-install on every load, over
+  pi's original saved once on the prototype (`__altUiOrigRender`,
+  `__altUiOrig`, …). A "patched already, skip" flag leaves the first load's
+  code running after `/reload` (stale frames, zentui's stock `┆ Thinking`).
+
+## Subagents (bundled pi-subagents-lite)
+
+`lib/subagents-lite/` is pi-subagents-lite 1.15.0's `src/` (MIT, licence
+alongside). alt-ui loads it through a `Proxy` of `pi`, like bg-tasks:
+
+- **Always background:** the `Agent` tool is re-registered without
+  `run_in_background` in its schema, and `execute` forces it to `true`.
+- **UI:** the package's own widget, footer status and ↓ handler are off
+  (`altUiHooks.ownsUi`). alt-ui draws a second dock line, `▶ subagents` (purple
+  spinner), and `AgentsView` (same columns as the task list + agent type;
+  enter opens, `x` stops). The `subagent-result` card is replaced by a one-line
+  `● Subagent … completed` (`renderAgentNotification`).
+- **Opening an agent** swaps pi's chat container (found via `findParent`, it is
+  not a direct child of the TUI) for one built from the subagent's
+  `session.messages` with pi's own message components. `InteractiveMode` is
+  captured from its `renderWidgets`. Enter in the editor steers the agent, Esc
+  swaps the main chat back. The editor label comes from wrapping the zentui
+  editor's `getMinimalistMetadata` / `getModelMeta` (`sessionName`), coloured by
+  zentui's `components.editor.colors.sessionName`.
+- **Agent frames:** title `Agent · <type>` (+ `◷ running in background · <id>`),
+  body = description, then the prompt (dim).
+- **Edits to the vendored copy**, all marked `alt-ui`: `shell.ts`
+  (`altUiHooks`), `ui/agent-widget.ts` + `events.ts` (check it),
+  `agents/agent-runner.ts` (subagent sessions never load `pi-cc-header`, which
+  clears the whole terminal on every session_start). Re-apply if you update it.
+- `/reload` kills running subagents and forgets finished ones (package behaviour).
 
 ## Files & backups
 

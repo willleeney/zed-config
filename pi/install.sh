@@ -6,7 +6,7 @@ set -e
 DEST="$HOME/.pi/agent"
 REPO="https://raw.githubusercontent.com/willleeney/zed-config/master/pi"
 
-mkdir -p "$DEST/themes" "$DEST/extensions/agi-graph" "$DEST/extensions/lib/bg-tasks"
+mkdir -p "$DEST/themes" "$DEST/extensions/agi-graph"
 
 for f in settings.json models.json mcp.json zentui.json; do
   curl -sfL "$REPO/$f" -o "$DEST/$f"
@@ -17,10 +17,11 @@ for f in dusk.json dawn.json; do
 done
 
 curl -sfL "$REPO/extensions/alt-ui.ts" -o "$DEST/extensions/alt-ui.ts"
-for f in index.ts lifecycle.ts notify.ts output.ts registry.ts spawn.ts tools-bash.ts \
-         tools-tasks.ts types.ts ui.ts unwrap.ts LICENSE README.md; do
-  curl -sfL "$REPO/extensions/lib/bg-tasks/$f" -o "$DEST/extensions/lib/bg-tasks/$f"
-done
+# alt-ui's bundled libraries (bg-tasks, subagents-lite): many nested files, so
+# unpack extensions/lib/ from the repo archive instead of fetching one by one.
+rm -rf "$DEST/extensions/lib"
+curl -sfL https://codeload.github.com/willleeney/zed-config/tar.gz/master |
+  tar -xz -C "$DEST/extensions" --strip-components=3 zed-config-master/pi/extensions/lib
 curl -sfL "$REPO/extensions/reset-pi.sh" -o "$DEST/extensions/reset-pi.sh"
 curl -sfL "$REPO/extensions/agi-graph/index.ts" -o "$DEST/extensions/agi-graph/index.ts"
 curl -sfL "$REPO/extensions/agi-graph/rollback.sh" -o "$DEST/extensions/agi-graph/rollback.sh"

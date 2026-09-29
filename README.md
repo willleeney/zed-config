@@ -120,6 +120,10 @@ A pi extension that restyles the built-in tool-call boxes (`read`, `bash`,
   the timeout, **ctrl+shift+b** / `/bg`, and a `▶ background tasks` line below the
   footer — **↓** on an empty prompt selects it, **enter** lists tasks, **enter** again
   shows a task's live output, **esc** steps back
+- subagents (bundled [pi-subagents-lite](https://github.com/AlexParamonov/pi-subagents-lite)):
+  always run in the background, a `▶ subagents` line under the background-tasks one
+  (**↓** again to reach it) lists them; **enter** opens one in the main window (type to
+  steer it, **esc** back), **x** stops one
 
 ```sh
 mkdir -p ~/.pi/agent/extensions
@@ -127,8 +131,8 @@ cp pi/extensions/alt-ui.ts ~/.pi/agent/extensions/
 cp -R pi/extensions/lib ~/.pi/agent/extensions/
 ```
 
-Don't also install the `pi-bg-tasks` npm package — both register `bash` and pi
-refuses to start.
+Don't also install the `pi-bg-tasks` or `pi-subagents-lite` npm packages — alt-ui
+bundles them, and a second copy's tools clash and pi refuses to start.
 
 Then restart pi (or run `/reload`). To remove it, delete that file and restart —
 or run `bash ~/.pi/agent/extensions/reset-pi.sh` to clear all custom extensions.
@@ -163,7 +167,7 @@ cp pi/extensions/agi-graph/index.ts pi/extensions/agi-graph/rollback.sh ~/.pi/ag
 | `pi/themes/dusk.json` | `~/.pi/agent/themes/dusk.json` |
 | `pi/themes/dawn.json` | `~/.pi/agent/themes/dawn.json` |
 | `pi/extensions/alt-ui.ts` | `~/.pi/agent/extensions/alt-ui.ts` |
-| `pi/extensions/lib/bg-tasks/` | `~/.pi/agent/extensions/lib/bg-tasks/` |
+| `pi/extensions/lib/` (bg-tasks, subagents-lite) | `~/.pi/agent/extensions/lib/` |
 | `pi/extensions/reset-pi.sh` | `~/.pi/agent/extensions/reset-pi.sh` |
 | `pi/extensions/agi-graph/index.ts` | `~/.pi/agent/extensions/agi-graph/index.ts` |
 | `pi/extensions/agi-graph/rollback.sh` | `~/.pi/agent/extensions/agi-graph/rollback.sh` |
