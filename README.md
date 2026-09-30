@@ -59,6 +59,11 @@ Set as Default). Dusk/Dawn carry macOS-style shell editing keys:
 
 #### Global settings
 
+**GPU rendering is off** (`UseMetal: false`, Settings → General → Magic). iTerm
+3.7's Metal renderer draws the right-hand rounded corners `╮` `╯` with a small
+tick, which shows on every pi box; the CPU renderer (and Ghostty) draw them
+cleanly. It doesn't depend on font, line spacing or custom box drawing.
+
 `global-settings.json` captures app-wide iTerm2 preferences (global key
 mappings, color presets, tab style, margins, pane dimming, etc.). To apply:
 

@@ -501,5 +501,6 @@
   "SeparateStatusBarsPerPane": true,
   "HideTabCloseButton": true,
   "AiResponseMaxTokens": 128000,
+  "UseMetal": false,
   "DimInactiveSplitPanes": true
 }
