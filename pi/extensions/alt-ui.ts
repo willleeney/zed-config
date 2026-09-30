@@ -978,6 +978,16 @@ async function openDockView(ui: any, which: "bg" | "agents"): Promise<void> {
 	if (picked) openSubagentView(picked);
 }
 
+/** True when the input box has the keyboard (no selector, dialog or overlay open). */
+function editorHasFocus(): boolean {
+	const tui = piMode?.ui;
+	if (!tui) return true;
+	if (tui.hasOverlay?.()) return false;
+	const focused = tui.focusedComponent;
+	// The editor (zentui's or pi's) is the only focusable with getText + setText.
+	return focused == null || (typeof focused.getText === "function" && typeof focused.setText === "function");
+}
+
 /** True when ↓ has nowhere to go inside the editor (last line, no autocomplete). */
 function cursorOnLastEditorLine(): boolean {
 	const ed = piMode?.editor;
@@ -990,6 +1000,14 @@ function cursorOnLastEditorLine(): boolean {
 /** Raw-input hook: ↓ on the editor's last line focuses the dock, ↓/↑ move, Enter opens. */
 function bgDockInput(ui: any, data: string): { consume: boolean } | undefined {
 	if (bgViewOpen || isKeyRelease(data)) return;
+	// pi's own menus (/resume, model picker, …) replace the editor; leave their keys alone.
+	if (!editorHasFocus()) {
+		if (dockFocus) {
+			dockFocus = undefined;
+			paintBgDock();
+		}
+		return;
+	}
 	const sub = subViewInput(ui, data);
 	if (sub) return sub;
 	const focus = (next: typeof dockFocus) => {
