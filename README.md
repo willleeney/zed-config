@@ -71,6 +71,9 @@ from a custom folder".
 
 ### Pi (coding agent)
 
+Step-by-step guide for setting this up from scratch (pi + meridian + alt-ui):
+[`pi/SETUP.md`](pi/SETUP.md).
+
 One-line install (everything, including themes and extensions):
 
 ```sh
