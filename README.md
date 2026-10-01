@@ -56,6 +56,7 @@ Set as Default). Dusk/Dawn carry macOS-style shell editing keys:
 | ⌥⌫ | delete word backward |
 | ⌘⌫ | delete to line start |
 | ⌥⌦ / ⌘⌦ | delete word forward / to line end |
+| ⌘T | new tmux window (as a tab, in the current dir) — see [tmux](#tmux-persistent-tabs) |
 
 #### Global settings
 
@@ -73,6 +74,38 @@ defaults import com.googlecode.iterm2 iterm2/global-settings.json
 
 Or import selectively via Settings → General → Preferences → "Load preferences
 from a custom folder".
+
+### tmux (persistent tabs)
+
+Native iTerm2 look and keys, but every tab/split is a tmux window/pane via
+iTerm2's control mode (`tmux -CC`). Quitting or crashing iTerm leaves the shells
+running; tmux-resurrect + tmux-continuum save the layout every 5 min and restore
+it after a reboot (dirs, splits, pane text; listed programs are relaunched).
+
+```sh
+./tmux/install.sh   # tmux, plugins, ~/.tmux.conf, sources tmux/tm.zsh from ~/.zshrc
+```
+
+`tm.zsh` defines `tm` (attach-or-create session `main`, unhiding any hidden
+windows) and runs it automatically when iTerm opens and nothing is attached yet.
+Skip once with `NO_TM=1 zsh`.
+
+The tmux-related iTerm prefs are in `global-settings.json`: open tmux windows as
+tabs in the attaching window, bury the gateway session, and **Detach** when
+closing a whole window. The first time you ⌘W a tmux tab iTerm asks Hide/Kill —
+pick **Kill** and tick "Remember my choice" so ⌘W really closes the shell.
+
+| Task | How |
+|------|-----|
+| Reattach / restore everything | `tm` (or just open iTerm) |
+| New tab / split / close | ⌘T / ⌘D ⌘⇧D / ⌘W |
+| Switch tabs | ⌘1–9, ⌃⇥ / ⌃⇧⇥ |
+| See all windows incl. hidden | Shell › tmux › Dashboard |
+| List / kill windows | `tmux lsw` / `tmux kill-window -t N` |
+| Save now (before a reboot) | `~/.tmux/plugins/tmux-resurrect/scripts/save.sh` |
+
+tmux's own on-screen menus (`prefix w` etc.) don't render in control mode — use
+the Dashboard instead.
 
 ### Pi (coding agent)
 
@@ -168,6 +201,8 @@ cp pi/extensions/agi-graph/index.ts pi/extensions/agi-graph/rollback.sh ~/.pi/ag
 | `iterm2/dawn.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/dawn.json` |
 | `iterm2/default.json` | `~/Library/Application Support/iTerm2/DynamicProfiles/default.json` |
 | `iterm2/global-settings.json` | `defaults import com.googlecode.iterm2` |
+| `tmux/tmux.conf` | `~/.tmux.conf` |
+| `tmux/tm.zsh` | `~/.config/zsh/tm.zsh` (sourced from `~/.zshrc`) |
 | `pi/settings.json` | `~/.pi/agent/settings.json` |
 | `pi/models.json` | `~/.pi/agent/models.json` |
 | `pi/mcp.json` | `~/.pi/agent/mcp.json` |

@@ -502,5 +502,9 @@
   "HideTabCloseButton": true,
   "AiResponseMaxTokens": 128000,
   "UseMetal": false,
-  "DimInactiveSplitPanes": true
+  "DimInactiveSplitPanes": true,
+  "OpenTmuxWindowsIn": 2,
+  "AutoHideTmuxClientSession": true,
+  "ClosingTmuxWindowKillsTmuxWindows": true,
+  "ClosingTmuxWindowKillsTmuxWindows_selection": 1
 }

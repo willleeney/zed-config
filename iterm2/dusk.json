@@ -123,6 +123,13 @@
         "0x7f-0x100000": {
           "Action": 11,
           "Text": "0x15"
+        },
+        "0x74-0x100000-0x11": {
+          "Version": 2,
+          "Apply Mode": 0,
+          "Action": 65,
+          "Text": "new-window -c \"#{pane_current_path}\"",
+          "Escaping": 2
         }
       },
       "Ansi 3 Color (Dark)": {
